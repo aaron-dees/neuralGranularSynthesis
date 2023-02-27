@@ -99,6 +99,7 @@ class Saver:
     def save_feature(self, feature, file_path):
         save_path = self._generate_save_path(file_path)
         np.save(save_path, feature)
+        return save_path
 
     def save_min_max_values(self, min_max_values):
 
@@ -165,7 +166,7 @@ class PreProcessingPipeline:
                 file_path = os.path.join(root, file)
                 self._process_file(file_path)
                 print(f"Processed file {file_path}")
-        
+
         self.saver.save_min_max_values(self.min_max_values)
 
     def _process_file(self, file_path):
