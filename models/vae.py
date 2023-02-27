@@ -1,6 +1,11 @@
 import os
 import glob
 
+from audio_preprocessing import MinMaxNormaliser
+import librosa
+import pickle
+import soundfile as sf
+
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -15,11 +20,14 @@ device = torch.device('mps:0')
 # device = torch.device('cpu')
 TRAIN = True
 BATCH_SIZE = 60
-EPOCHS = 150
+EPOCHS = 100
 LEARNING_RATE = 0.0005
 SAVE_MODEL = True
 LOAD_MODEL = True
-MODEL_PATH = './saved_models/fsdd_vae_gpu_150epochs.pt'
+MODEL_PATH = './saved_models/fsdd_vae_gpu_100epochs.pt'
+HOP_LENGTH = 256
+MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
+RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
 
 class FSDDDataset(torch.utils.data.Dataset):
 
@@ -38,7 +46,6 @@ class FSDDDataset(torch.utils.data.Dataset):
 
         file_path = self.file_list[index]
         spectrogram = np.load(file_path)
-        label  = file_path
         spectrogram = np.expand_dims(spectrogram, axis=0)
         spectrogram = torch.from_numpy(spectrogram)
 
@@ -241,6 +248,31 @@ def show_image_comparisons(images, x_hat):
             ax.get_yaxis().set_visible(False)
     plt.savefig("comparisons.png")
 
+# some utility functions for generating audio
+
+def convert_spectrograms_to_audio(log_spectrograms, min_max_values):
+    signals = []
+    min_max_normaliser = MinMaxNormaliser(0, 1)
+    for log_spectrogram, min_max_value in zip(log_spectrograms, min_max_values):
+        # reshape log spectrogram
+        log_spectrogram = log_spectrogram.squeeze()
+        # apply de-normalisation
+        denorm_log_spec = min_max_normaliser.denormalise(log_spectrogram, min_max_value["min"],  min_max_value["max"])
+        # log spectrogram -> spectrogram
+        spectrogram = librosa.db_to_amplitude(denorm_log_spec)
+        # apply griffin-lim
+        signal = librosa.istft(spectrogram, hop_length = HOP_LENGTH)
+        # append signal to 'signals'
+        signals.append(signal)
+
+    return signals
+
+def save_signals(signals, save_dir, sample_rate=22050):
+    for i, signal in enumerate(signals):
+        save_path = os.path.join(save_dir, str(i) + ".wav")
+        sf.write(save_path, signal, sample_rate)
+
+## Script
 
 if "main":
 
@@ -292,15 +324,27 @@ if "main":
 
             # Lets get batch of test images
             dataiter = iter(fsdd_dataloader)
-            images, labels = next(dataiter)
-            images = images.to(device)
+            spectrograms, file_paths = next(dataiter)
+            spectrograms = spectrograms.to(device)
+            
+            # load spectrograms + min max values
+            with open(MIN_MAX_VALUES_PATH, "rb") as f:
+                min_max_values = pickle.load(f)
+            
+            sampled_min_max_values = [min_max_values[file_path] for file_path in
+                           file_paths]
 
-            x_hat, z, mu, log_variance = model(images)                     # get sample outputs
-            images = images.cpu().numpy()                    # prep images for display
+            x_hat, z, _, _ = model(spectrograms)                     # get sample outputs
             x_hat = x_hat.detach().cpu().numpy()           # use detach when it's an output that requires_grad
 
+            reconstructed_signals = convert_spectrograms_to_audio(x_hat, sampled_min_max_values)
+
+            save_signals(reconstructed_signals, RECONSTRUCTION_SAVE_DIR)
+
+            print(len(reconstructed_signals))
+
             # plot the first ten input images and then reconstructed images
-            show_image_comparisons(images, x_hat)
-            show_latent_space(z.detach().cpu().numpy(), labels)
+            # show_image_comparisons(images, x_hat)
+            # show_latent_space(z.detach().cpu().numpy(), labels)
 
     print("Done")
