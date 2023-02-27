@@ -20,11 +20,11 @@ device = torch.device('mps:0')
 # device = torch.device('cpu')
 TRAIN = True
 BATCH_SIZE = 60
-EPOCHS = 100
+EPOCHS = 200
 LEARNING_RATE = 0.0005
 SAVE_MODEL = True
 LOAD_MODEL = True
-MODEL_PATH = './saved_models/fsdd_vae_gpu_100epochs.pt'
+MODEL_PATH = './saved_models/fsdd_vae_gpu_200epochs.pt'
 HOP_LENGTH = 256
 MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
@@ -85,7 +85,7 @@ def calc_combined_loss(target, prediction, mu, log_variance, reconstruction_loss
     kl_loss = calc_kl_loss(mu, log_variance)
     combined_loss = (reconstruction_loss_weight * reconstruction_loss) + kl_loss
 
-    return combined_loss
+    return combined_loss, kl_loss, reconstruction_loss
 
 #############
 # Models
@@ -295,21 +295,29 @@ if "main":
         
         for epoch in range(EPOCHS):
             train_loss = 0.0
+            kl_loss_sum = 0.0
+            reconstruction_loss_sum = 0.0
             for data in fsdd_dataloader:
                 img, _ = data 
                 img = Variable(img).to(device)                       # we are just intrested in just images
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
                 x_hat, z, mu, log_variance = model(img)                 # forward pass: compute predicted outputs 
-                loss = calc_combined_loss(x_hat, img, mu, log_variance, 1000000)       # calculate the loss
+                loss, kl_loss, reconstruction_loss = calc_combined_loss(x_hat, img, mu, log_variance, 1000000)       # calculate the loss
                 loss.backward()                         # backward pass
                 optimizer.step()                        # perform optimization step
-                train_loss += loss.item()*img.size(0)   # update running training loss
+                # I don't thinnk it's necisary to multiply by the batch size here in reporting the loss, or is it?
+                train_loss += loss.item()*img.size(0)  # update running training loss
+                kl_loss_sum += kl_loss.item()*img.size(0)
+                reconstruction_loss_sum += reconstruction_loss.item()*img.size(0)
             
             # print avg training statistics 
             train_loss = train_loss/len(fsdd_dataloader)
+            kl_loss = kl_loss_sum/len(fsdd_dataloader)
+            reconstruction_loss = reconstruction_loss_sum/len(fsdd_dataloader)
             print('Epoch: {}'.format(epoch+1),
             '\tTraining Loss: {:.4f}'.format(train_loss))
+            print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
 
         if(SAVE_MODEL == True):
             torch.save(model.state_dict(), MODEL_PATH)
