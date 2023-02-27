@@ -1,7 +1,8 @@
+import os
+import glob
+
 import torch
 import torch.nn as nn
-# import torchaudio
-# import librosa
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 import torchvision as tv
@@ -12,12 +13,12 @@ import time
 
 device = torch.device('mps:0')
 # device = torch.device('cpu')
-TRAIN = False
-BATCH_SIZE = 6000
-EPOCHS = 100
+TRAIN = True
+BATCH_SIZE = 30
+EPOCHS = 20
 SAVE_MODEL = True
 LOAD_MODEL = True
-MODEL_PATH = './saved_models/mnist_vae_gpu_100epochs.pt'
+MODEL_PATH = './saved_models/fsdd_vae_gpu_test.pt'
 
 # MNIST Preprocessing
 transform = tv.transforms.ToTensor()
@@ -26,6 +27,32 @@ dataloader = torch.utils.data.DataLoader(trainset, batch_size=BATCH_SIZE, num_wo
 testset = tv.datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, num_workers=0)
 
+
+class FSDDDataset(torch.utils.data.Dataset):
+
+    def __init__(self, root_dir, transform=None):
+        super().__init__()
+        
+        self.root_dir = root_dir
+        self.file_list = glob.glob(self.root_dir + "*")
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.file_list)
+    
+    def __getitem__(self, index):
+
+
+        file_path = self.file_list[index]
+        spectrogram = np.load(file_path)
+        label  = file_path
+        spectrogram = np.expand_dims(spectrogram, axis=0)
+        spectrogram = torch.from_numpy(spectrogram)
+
+        if self.transform:
+            spectrogram = self.transform(spectrogram)
+
+        return spectrogram, file_path
 
 def sample_from_distribution(mu, log_variance):
 
@@ -75,7 +102,7 @@ class Encoder(nn.Module):
         self.Conv_E_2= nn.Conv2d(32, 64, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_3= nn.Conv2d(64, 64, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_4= nn.Conv2d(64, 64, stride=1, kernel_size=3, padding=3//2)
-        self.Dense_E_1 = nn.Linear(3136,2)
+        self.Dense_E_1 = nn.Linear(65536,2)
 
         self.Flat_E_1 = nn.Flatten()
 
@@ -124,7 +151,7 @@ class Decoder(nn.Module):
 
         # pad = (3 // 2 + (3 - 2 * (3 // 2)) - 1, 3 // 2)
 
-        self.Dense_D_1 = nn.Linear(2, 3136)
+        self.Dense_D_1 = nn.Linear(2, 65536)
         self.ConvT_D_1 = nn.ConvTranspose2d(64, 64, stride=1, kernel_size=3, padding = 3//2, output_padding = 0)
         # Note the need to add output padding here for tranposed dimensions to match
         self.ConvT_D_2 = nn.ConvTranspose2d(64, 64, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
@@ -144,7 +171,7 @@ class Decoder(nn.Module):
 
         # Dense Layer
         Dense_D_1 = self.Dense_D_1(z)
-        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 64, 7, 7))
+        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 64, 64, 16))
         # Conv layer 1
         Conv_D_1 = self.ConvT_D_1(Reshape_D_1)
         Act_D_1 = self.Act_D_1(Conv_D_1)
@@ -216,18 +243,23 @@ if "main":
 
     model.to(device)
 
+    train_dir = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/log_spectograms/" 
+    training_data = FSDDDataset(root_dir=train_dir)
+    fsdd_dataloader = torch.utils.data.DataLoader(training_data, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
+
     if TRAIN:
 
         ##########
         # Training
         ########## 
 
+        
         loss_fn = nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(),lr=0.001)
         
         for epoch in range(EPOCHS):
             train_loss = 0.0
-            for data in dataloader:
+            for data in fsdd_dataloader:
                 img, _ = data 
                 img = Variable(img).to(device)                       # we are just intrested in just images
                 # no need to flatten images
