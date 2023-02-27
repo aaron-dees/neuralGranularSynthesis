@@ -12,9 +12,9 @@ import time
 
 device = torch.device('mps:0')
 # device = torch.device('cpu')
-TRAIN = True
-BATCH_SIZE = 32
-EPOCHS = 20
+TRAIN = False
+BATCH_SIZE = 6000
+EPOCHS = 100
 SAVE_MODEL = True
 LOAD_MODEL = True
 MODEL_PATH = './saved_models/mnist_vae_mine.pt'
@@ -37,7 +37,7 @@ class Encoder(nn.Module):
         self.Conv_E_2= nn.Conv2d(32, 64, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_3= nn.Conv2d(64, 64, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_4= nn.Conv2d(64, 64, stride=1, kernel_size=3, padding=3//2)
-        self.Dense_E_1 = nn.Linear(3136,256)
+        self.Dense_E_1 = nn.Linear(3136,2)
 
         self.Flat_E_1 = nn.Flatten()
 
@@ -82,7 +82,7 @@ class Decoder(nn.Module):
 
         # pad = (3 // 2 + (3 - 2 * (3 // 2)) - 1, 3 // 2)
 
-        self.Dense_D_1 = nn.Linear(256, 3136)
+        self.Dense_D_1 = nn.Linear(2, 3136)
         self.ConvT_D_1 = nn.ConvTranspose2d(64, 64, stride=1, kernel_size=3, padding = 3//2, output_padding = 0)
         # Note the need to add output padding here for tranposed dimensions to match
         self.ConvT_D_2 = nn.ConvTranspose2d(64, 64, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
@@ -95,7 +95,6 @@ class Decoder(nn.Module):
 
         self.Act_D_1 = nn.ReLU()
         self.Act_D_2 = nn.Sigmoid()
-        self.Pixel_Shuffle_D = nn.PixelShuffle(4)
 
     def forward(self, z):
 
@@ -123,10 +122,10 @@ class Decoder(nn.Module):
         return x_hat
 
 # Model from AI and Sound tutorial
-class AE(nn.Module):
+class VAE(nn.Module):
 
     def __init__(self):
-        super(AE, self).__init__()
+        super(VAE, self).__init__()
 
         # Encoder and decoder components
         self.Encoder = Encoder()
@@ -142,14 +141,38 @@ class AE(nn.Module):
         # z ---> x_hat
         x_hat = self.Decoder(z)
 
-        return x_hat 
+        return x_hat, z
+
+
+def show_latent_space(latent_representations, sample_labels):
+    plt.figure(figsize=(10,10))
+    plt.scatter(latent_representations[:, 0],
+        latent_representations[:, 1],
+        cmap="rainbow",
+        c = sample_labels,
+        alpha = 0.5,
+        s = 2)
+    plt.colorbar
+    plt.savefig("laetnt_rep.png") 
+
+def show_image_comparisons(images, x_hat):
+
+    fig, axes = plt.subplots(nrows=2, ncols=10, sharex=True, sharey=True, figsize=(25,4))
+            
+    # input images on top row, reconstructions on bottom
+    for images, row in zip([images, x_hat], axes):
+        for img, ax in zip(images, row):
+            ax.imshow(np.squeeze(img), cmap='gray')
+            ax.get_xaxis().set_visible(False)
+            ax.get_yaxis().set_visible(False)
+    plt.savefig("comparisons.png")
 
 
 if "main":
 
-    ae = AE()
+    model = VAE()
 
-    ae.to(device)
+    model.to(device)
 
     if TRAIN:
 
@@ -158,7 +181,7 @@ if "main":
         ########## 
 
         loss_fn = nn.MSELoss()
-        optimizer = torch.optim.Adam(ae.parameters(),lr=0.001)
+        optimizer = torch.optim.Adam(model.parameters(),lr=0.001)
         
         for epoch in range(EPOCHS):
             train_loss = 0.0
@@ -167,8 +190,8 @@ if "main":
                 img = Variable(img).to(device)                       # we are just intrested in just images
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
-                outputs = ae(img)                 # forward pass: compute predicted outputs 
-                loss = loss_fn(outputs, img)       # calculate the loss
+                x_hat, z = model(img)                 # forward pass: compute predicted outputs 
+                loss = loss_fn(x_hat, img)       # calculate the loss
                 loss.backward()                         # backward pass
                 optimizer.step()                        # perform optimization step
                 train_loss += loss.item()*img.size(0)   # update running training loss
@@ -179,7 +202,7 @@ if "main":
             '\tTraining Loss: {:.4f}'.format(train_loss))
 
         if(SAVE_MODEL == True):
-            torch.save(ae.state_dict(), MODEL_PATH)
+            torch.save(model.state_dict(), MODEL_PATH)
 
 
     else:
@@ -187,26 +210,21 @@ if "main":
 
             # Load Model
             if(LOAD_MODEL == True):
-                ae.load_state_dict(torch.load(MODEL_PATH))
+                model.load_state_dict(torch.load(MODEL_PATH))
 
             # Lets get batch of test images
             dataiter = iter(testloader)
             images, labels = next(dataiter)
             images = images.to(device)
 
-            output = ae(images)                     # get sample outputs
+            x_hat, z = model(images)                     # get sample outputs
             images = images.cpu().numpy()                    # prep images for display
-            output = output.view(BATCH_SIZE, 1, 28, 28)# resizing output
-            output = output.detach().cpu().numpy()           # use detach when it's an output that requires_grad
+            x_hat = x_hat.detach().cpu().numpy()           # use detach when it's an output that requires_grad
 
             # plot the first ten input images and then reconstructed images
-            fig, axes = plt.subplots(nrows=2, ncols=10, sharex=True, sharey=True, figsize=(25,4))
-            # input images on top row, reconstructions on bottom
-            for images, row in zip([images, output], axes):
-                for img, ax in zip(images, row):
-                    ax.imshow(np.squeeze(img), cmap='gray')
-                    ax.get_xaxis().set_visible(False)
-                    ax.get_yaxis().set_visible(False)
-            plt.savefig("comparisons.png")
+            show_image_comparisons(images, x_hat)
+            show_latent_space(z.detach().cpu().numpy(), labels)
+
+            #
 
     print("Done")
