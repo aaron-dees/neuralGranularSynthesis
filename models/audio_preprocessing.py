@@ -29,14 +29,14 @@ class Padder:
     def __init__(self, mode = "constant"):
         self.mode = mode
 
-    def left_pad(array, num_missing_items):
+    def left_pad(self, array, num_missing_items):
         
         padded_array = np.pad(array,
                                 (num_missing_items, 0),
                                 mode = self.mode)
         return padded_array 
 
-    def right_pad(array, num_missing_items):
+    def right_pad(self, array, num_missing_items):
 
         padded_array = np.pad(array,
                                 (0, num_missing_items),
@@ -60,6 +60,9 @@ class LogSpectrogramExtractor:
         # This means if we use 1024 frame size for instance, we will get 513 in first dimension.
         # NOTE: Since we would rather deal with even numbers, we will drop one of the freq bins, 
         # should check what effect this has.
+        spectrogram = np.abs(stft)
+        log_spectrogram = librosa.amplitude_to_db(spectrogram)
+        return log_spectrogram
         
 
 
@@ -85,8 +88,6 @@ class MinMaxNormaliser:
 
         return array
 
-
-
 class Saver:
 
     """Saves feature and min max values"""
@@ -110,7 +111,7 @@ class Saver:
     def _save(data, save_path):
 
         with open(save_path, "wb") as f:
-            pickle.dump(data, save_path)
+            pickle.dump(data, f)
 
     def _generate_save_path(self, file_path):
 
@@ -174,8 +175,8 @@ class PreProcessingPipeline:
             signal = self._apply_padding(signal)
         feature = self.extractor.extract(signal)
         norm_feature = self.normaliser.normalise(feature)
-        save_path = self.saver.save_feature(norm_feature)
-        self._store_min_max_value(save_path, feature.min(), feature.max())
+        save_path = self.saver.save_feature(norm_feature, file_path)
+        self._store_min_max_values(save_path, feature.min(), feature.max())
 
     def _is_padding_neccessary(self, signal):
 
@@ -196,3 +197,31 @@ class PreProcessingPipeline:
             "min": min_val,
             "max": max_val
         }
+
+if __name__ == "__main__":
+    FRAME_SIZE = 512
+    HOP_LENGTH = 256
+    DURATION = 0.74 # SECONDS
+    SAMPLE_RATE = 22050
+    MONO = True
+
+    SPECTROGRAMS_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/log_spectograms"
+    MIN_MAX_VALUES_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd"
+    FILES_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/recordings"
+
+    # instantiate all objects
+    loader = Loader(SAMPLE_RATE, DURATION, MONO)
+    padder = Padder()
+    log_spectrogram_extractor = LogSpectrogramExtractor(FRAME_SIZE, HOP_LENGTH)
+    min_max_normaliser = MinMaxNormaliser(0, 1)
+    saver = Saver(SPECTROGRAMS_SAVE_DIR, MIN_MAX_VALUES_SAVE_DIR)
+
+    preprocessing_pipeline = PreProcessingPipeline()
+    preprocessing_pipeline.loader = loader
+    preprocessing_pipeline.padder = padder
+    preprocessing_pipeline.extractor = log_spectrogram_extractor
+    preprocessing_pipeline.normaliser = min_max_normaliser
+    preprocessing_pipeline.saver = saver
+
+    preprocessing_pipeline.process(FILES_DIR)
+
