@@ -5,6 +5,8 @@ import librosa
 import numpy as np
 import soundfile as sf
 
+from scripts.hyper_parameters import *
+
 
 def convert_spectrograms_to_audio(log_spectrograms, min_max_values, hop_length):
     signals = []
@@ -226,31 +228,3 @@ class PreProcessingPipeline:
             "min": min_val,
             "max": max_val
         }
-
-if __name__ == "__main__":
-    FRAME_SIZE = 512
-    HOP_LENGTH = 256
-    DURATION = 0.74 # SECONDS
-    SAMPLE_RATE = 22050
-    MONO = True
-
-    SPECTROGRAMS_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/log_spectograms"
-    MIN_MAX_VALUES_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd"
-    FILES_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/recordings"
-
-    # instantiate all objects
-    loader = Loader(SAMPLE_RATE, DURATION, MONO)
-    padder = Padder()
-    log_spectrogram_extractor = LogSpectrogramExtractor(FRAME_SIZE, HOP_LENGTH)
-    min_max_normaliser = MinMaxNormaliser(0, 1)
-    saver = Saver(SPECTROGRAMS_SAVE_DIR, MIN_MAX_VALUES_SAVE_DIR)
-
-    preprocessing_pipeline = PreProcessingPipeline()
-    preprocessing_pipeline.loader = loader
-    preprocessing_pipeline.padder = padder
-    preprocessing_pipeline.extractor = log_spectrogram_extractor
-    preprocessing_pipeline.normaliser = min_max_normaliser
-    preprocessing_pipeline.saver = saver
-
-    preprocessing_pipeline.process(FILES_DIR)
-
