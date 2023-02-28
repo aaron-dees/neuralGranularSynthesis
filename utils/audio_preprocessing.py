@@ -3,6 +3,30 @@ import pickle
 
 import librosa
 import numpy as np
+import soundfile as sf
+
+
+def convert_spectrograms_to_audio(log_spectrograms, min_max_values, hop_length):
+    signals = []
+    min_max_normaliser = MinMaxNormaliser(0, 1)
+    for log_spectrogram, min_max_value in zip(log_spectrograms, min_max_values):
+        # reshape log spectrogram
+        log_spectrogram = log_spectrogram.squeeze()
+        # apply de-normalisation
+        denorm_log_spec = min_max_normaliser.denormalise(log_spectrogram, min_max_value["min"],  min_max_value["max"])
+        # log spectrogram -> spectrogram
+        spectrogram = librosa.db_to_amplitude(denorm_log_spec)
+        # apply griffin-lim
+        signal = librosa.istft(spectrogram, hop_length = hop_length)
+        # append signal to 'signals'
+        signals.append(signal)
+
+    return signals
+
+def save_signals(signals, file_paths ,save_dir, sample_rate=22050):
+    for i, signal in enumerate(signals):
+        save_path = os.path.join(save_dir, "reconstructed_" + file_paths[i][74:-8] + ".wav")
+        sf.write(save_path, signal, sample_rate)
 
 class Loader:
 

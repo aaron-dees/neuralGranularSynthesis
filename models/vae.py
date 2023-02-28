@@ -3,13 +3,13 @@ import os
 import sys
 sys.path.append('../')
 
-from utils.audio_preprocessing import MinMaxNormaliser
+from models.loss_functions import calc_combined_loss
+from utils.audio_preprocessing import MinMaxNormaliser, convert_spectrograms_to_audio, save_signals
 from utils.utilities import sample_from_distribution
 from models.dataloaders import FSDDDataset
 
 import librosa
 import pickle
-import soundfile as sf
 
 import torch
 import torch.nn as nn
@@ -30,31 +30,6 @@ MODEL_PATH = '/Users/adees/Code/neural_granular_synthesis/models/saved_models/fs
 HOP_LENGTH = 256
 MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
-
-#################
-# Loss Functions
-#################
-
-def calc_reconstruction_loss(target, prediction):
-
-    error = target - prediction
-    reconstruction_loss = torch.mean(error**2)
-
-    return reconstruction_loss
-
-def calc_kl_loss(mu, log_variance):
-
-    kl_loss = - 0.5 * torch.sum(1 + log_variance - torch.square(mu) - torch.exp(log_variance))
-
-    return kl_loss
-
-def calc_combined_loss(target, prediction, mu, log_variance, reconstruction_loss_weight):
-
-    reconstruction_loss = calc_reconstruction_loss(target, prediction)
-    kl_loss = calc_kl_loss(mu, log_variance)
-    combined_loss = (reconstruction_loss_weight * reconstruction_loss) + kl_loss
-
-    return combined_loss, kl_loss, reconstruction_loss
 
 #############
 # Models
@@ -219,28 +194,6 @@ def show_image_comparisons(images, x_hat):
 
 # some utility functions for generating audio
 
-def convert_spectrograms_to_audio(log_spectrograms, min_max_values):
-    signals = []
-    min_max_normaliser = MinMaxNormaliser(0, 1)
-    for log_spectrogram, min_max_value in zip(log_spectrograms, min_max_values):
-        # reshape log spectrogram
-        log_spectrogram = log_spectrogram.squeeze()
-        # apply de-normalisation
-        denorm_log_spec = min_max_normaliser.denormalise(log_spectrogram, min_max_value["min"],  min_max_value["max"])
-        # log spectrogram -> spectrogram
-        spectrogram = librosa.db_to_amplitude(denorm_log_spec)
-        # apply griffin-lim
-        signal = librosa.istft(spectrogram, hop_length = HOP_LENGTH)
-        # append signal to 'signals'
-        signals.append(signal)
-
-    return signals
-
-def save_signals(signals, file_paths ,save_dir, sample_rate=22050):
-    for i, signal in enumerate(signals):
-        save_path = os.path.join(save_dir, "reconstructed_" + file_paths[i][74:-8] + ".wav")
-        sf.write(save_path, signal, sample_rate)
-
 ## Script
 
 if "main":
@@ -284,6 +237,8 @@ if "main":
             train_loss = train_loss/len(fsdd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = kl_loss_sum/len(fsdd_dataloader)
             reconstruction_loss = reconstruction_loss_sum/len(fsdd_dataloader)
+            print(len(fsdd_dataloader))
+            print(img.size(0))
             print('Epoch: {}'.format(epoch+1),
             '\tTraining Loss: {:.4f}'.format(train_loss))
             print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
@@ -314,7 +269,7 @@ if "main":
             x_hat, z, _, _ = model(spectrograms)                     # get sample outputs
             x_hat = x_hat.detach().cpu().numpy()           # use detach when it's an output that requires_grad
 
-            reconstructed_signals = convert_spectrograms_to_audio(x_hat, sampled_min_max_values)
+            reconstructed_signals = convert_spectrograms_to_audio(x_hat, sampled_min_max_values, HOP_LENGTH)
 
             save_signals(reconstructed_signals, file_paths, RECONSTRUCTION_SAVE_DIR)
 
