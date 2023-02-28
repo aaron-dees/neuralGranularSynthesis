@@ -4,7 +4,7 @@ import torch
 
 DEVICE = torch.device('mps:0')
 # DEVICE = torch.device('cpu')
-TRAIN = True
+TRAIN = False
 BATCH_SIZE = 10
 EPOCHS = 100
 LEARNING_RATE = 0.0005

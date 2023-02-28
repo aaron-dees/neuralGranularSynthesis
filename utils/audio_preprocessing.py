@@ -67,6 +67,10 @@ class Padder:
                                 mode = self.mode)
         return padded_array 
 
+# Maybe try making an abstract extractor class that is used to get different spectrograms
+
+class MELSpectroGramExtractor:
+    pass
 
 class LogSpectrogramExtractor:
     """LogSpectrogrmExtractor extracts log spectograms in dB from a time series"""
