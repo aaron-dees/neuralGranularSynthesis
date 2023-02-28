@@ -1,35 +1,14 @@
-import os
-
 import sys
 sys.path.append('../')
 
-from models.loss_functions import calc_combined_loss
-from utils.audio_preprocessing import MinMaxNormaliser, convert_spectrograms_to_audio, save_signals
 from utils.utilities import sample_from_distribution
-from models.dataloaders import FSDDDataset
+from scripts.hyper_parameters import BATCH_SIZE, DEVICE, LATENT_SIZE
 
-import librosa
-import pickle
 
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
-from torch.autograd import Variable
 import numpy as np
-import matplotlib.pyplot as plt
-
-device = torch.device('mps:0')
-# device = torch.device('cpu')
-TRAIN = True
-BATCH_SIZE = 10
-EPOCHS = 20
-LEARNING_RATE = 0.0005
-SAVE_MODEL = True
-LOAD_MODEL = True
-MODEL_PATH = '/Users/adees/Code/neural_granular_synthesis/models/saved_models/fsdd_vae_gpu_20epochs_10batch.pt'
-HOP_LENGTH = 256
-MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
-RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
 
 #############
 # Models
@@ -40,14 +19,13 @@ class Encoder(nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
 
-        # pad = (3 // 2 + (3 - 2 * (3 // 2)) - 1, 3 // 2)
-
         self.Conv_E_1 = nn.Conv2d(1, 512, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_2= nn.Conv2d(512, 256, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_3= nn.Conv2d(256, 128, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_4= nn.Conv2d(128, 64, stride=2, kernel_size=3, padding=3//2)
         self.Conv_E_5= nn.Conv2d(64, 32, stride=(2,1), kernel_size=3, padding=3//2)
-        self.Dense_E_1 = nn.Linear(1024,128)
+        # Dense layer based on the striding used in conv layers
+        self.Dense_E_1 = nn.Linear(32 * int(256/pow(2,5)) * int(64/pow(2,4)), LATENT_SIZE)
 
         self.Flat_E_1 = nn.Flatten()
 
@@ -90,7 +68,7 @@ class Encoder(nn.Module):
         mu = self.Dense_E_1(Flat_E_1)
         log_variance = self.Dense_E_1(Flat_E_1)
 
-        z = sample_from_distribution(mu, log_variance, device, shape=(128))
+        z = sample_from_distribution(mu, log_variance, DEVICE, shape=(128))
 
         return z, mu, log_variance
 
@@ -99,9 +77,8 @@ class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
 
-        # pad = (3 // 2 + (3 - 2 * (3 // 2)) - 1, 3 // 2)
-
-        self.Dense_D_1 = nn.Linear(128, 1024)
+        # Check is calculating this power and cast kills performance
+        self.Dense_D_1 = nn.Linear(LATENT_SIZE, 32 * int(256/pow(2,5)) * int(64/pow(2,4)))
         self.ConvT_D_1 = nn.ConvTranspose2d(32, 32, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
         # Note the need to add output padding here for tranposed dimensions to match
         self.ConvT_D_2 = nn.ConvTranspose2d(32, 64, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
@@ -123,7 +100,9 @@ class Decoder(nn.Module):
 
         # Dense Layer
         Dense_D_1 = self.Dense_D_1(z)
-        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, 8, 4))
+        # TODO: Find a nicer way of doing this programatically
+        # Reshape based on the number striding used in encoder
+        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, int(256/pow(2,5)), int(64/pow(2,4))))
         # Conv layer 1
         Conv_D_1 = self.ConvT_D_1(Reshape_D_1)
         Act_D_1 = self.Act_D_1(Conv_D_1)
@@ -146,7 +125,6 @@ class Decoder(nn.Module):
 
         return x_hat
 
-# Model from AI and Sound tutorial
 class VAE(nn.Module):
 
     def __init__(self):
@@ -167,116 +145,3 @@ class VAE(nn.Module):
         x_hat = self.Decoder(z)
 
         return x_hat, z, mu, log_variance
-
-
-def show_latent_space(latent_representations, sample_labels):
-    plt.figure(figsize=(10,10))
-    plt.scatter(latent_representations[:, 0],
-        latent_representations[:, 1],
-        cmap="rainbow",
-        c = sample_labels,
-        alpha = 0.5,
-        s = 2)
-    plt.colorbar
-    plt.savefig("laetnt_rep.png") 
-
-def show_image_comparisons(images, x_hat):
-
-    fig, axes = plt.subplots(nrows=2, ncols=10, sharex=True, sharey=True, figsize=(25,4))
-            
-    # input images on top row, reconstructions on bottom
-    for images, row in zip([images, x_hat], axes):
-        for img, ax in zip(images, row):
-            ax.imshow(np.squeeze(img), cmap='gray')
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
-    plt.savefig("comparisons.png")
-
-# some utility functions for generating audio
-
-## Script
-
-if "main":
-
-    model = VAE()
-
-    model.to(device)
-
-    train_dir = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/log_spectograms/" 
-    training_data = FSDDDataset(root_dir=train_dir)
-    fsdd_dataloader = torch.utils.data.DataLoader(training_data, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
-
-    if TRAIN:
-
-        ##########
-        # Training
-        ########## 
-
-        loss_fn = nn.MSELoss()
-        optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
-        
-        for epoch in range(EPOCHS):
-            train_loss = 0.0
-            kl_loss_sum = 0.0
-            reconstruction_loss_sum = 0.0
-            for data in fsdd_dataloader:
-                img, _ = data 
-                img = Variable(img).to(device)                       # we are just intrested in just images
-                # no need to flatten images
-                optimizer.zero_grad()                   # clear the gradients
-                x_hat, z, mu, log_variance = model(img)                 # forward pass: compute predicted outputs 
-                loss, kl_loss, reconstruction_loss = calc_combined_loss(x_hat, img, mu, log_variance, 1000000)       # calculate the loss
-                loss.backward()                         # backward pass
-                optimizer.step()                        # perform optimization step
-                # I don't thinnk it's necisary to multiply by the batch size here in reporting the loss, or is it?
-                train_loss += loss.item()*img.size(0)  # update running training loss
-                kl_loss_sum += kl_loss.item()*img.size(0)
-                reconstruction_loss_sum += reconstruction_loss.item()*img.size(0)
-            
-            # print avg training statistics 
-            train_loss = train_loss/len(fsdd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
-            kl_loss = kl_loss_sum/len(fsdd_dataloader)
-            reconstruction_loss = reconstruction_loss_sum/len(fsdd_dataloader)
-            print(len(fsdd_dataloader))
-            print(img.size(0))
-            print('Epoch: {}'.format(epoch+1),
-            '\tTraining Loss: {:.4f}'.format(train_loss))
-            print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
-
-        if(SAVE_MODEL == True):
-            torch.save(model.state_dict(), MODEL_PATH)
-
-
-    else:
-        with torch.no_grad():
-
-            # Load Model
-            if(LOAD_MODEL == True):
-                model.load_state_dict(torch.load(MODEL_PATH))
-
-            # Lets get batch of test images
-            dataiter = iter(fsdd_dataloader)
-            spectrograms, file_paths = next(dataiter)
-            spectrograms = spectrograms.to(device)
-            
-            # load spectrograms + min max values
-            with open(MIN_MAX_VALUES_PATH, "rb") as f:
-                min_max_values = pickle.load(f)
-            
-            sampled_min_max_values = [min_max_values[file_path] for file_path in
-                           file_paths]
-
-            x_hat, z, _, _ = model(spectrograms)                     # get sample outputs
-            x_hat = x_hat.detach().cpu().numpy()           # use detach when it's an output that requires_grad
-
-            reconstructed_signals = convert_spectrograms_to_audio(x_hat, sampled_min_max_values, HOP_LENGTH)
-
-            save_signals(reconstructed_signals, file_paths, RECONSTRUCTION_SAVE_DIR)
-
-            print(len(reconstructed_signals))
-
-            # plot the first ten input images and then reconstructed images
-            # show_image_comparisons(images, x_hat)
-            # show_latent_space(z.detach().cpu().numpy(), labels)
-
-    print("Done")
