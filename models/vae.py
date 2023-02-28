@@ -1,7 +1,12 @@
 import os
-import glob
 
-from audio_preprocessing import MinMaxNormaliser
+import sys
+sys.path.append('../')
+
+from utils.audio_preprocessing import MinMaxNormaliser
+from utils.utilities import sample_from_distribution
+from models.dataloaders import FSDDDataset
+
 import librosa
 import pickle
 import soundfile as sf
@@ -10,57 +15,21 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
 from torch.autograd import Variable
-import torchvision as tv
-import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-import time
 
 device = torch.device('mps:0')
 # device = torch.device('cpu')
 TRAIN = True
-BATCH_SIZE = 60
-EPOCHS = 200
+BATCH_SIZE = 10
+EPOCHS = 20
 LEARNING_RATE = 0.0005
 SAVE_MODEL = True
 LOAD_MODEL = True
-MODEL_PATH = './saved_models/fsdd_vae_gpu_200epochs.pt'
+MODEL_PATH = '/Users/adees/Code/neural_granular_synthesis/models/saved_models/fsdd_vae_gpu_20epochs_10batch.pt'
 HOP_LENGTH = 256
 MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
-
-class FSDDDataset(torch.utils.data.Dataset):
-
-    def __init__(self, root_dir, transform=None):
-        super().__init__()
-        
-        self.root_dir = root_dir
-        self.file_list = glob.glob(self.root_dir + "*")
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.file_list)
-    
-    def __getitem__(self, index):
-
-
-        file_path = self.file_list[index]
-        spectrogram = np.load(file_path)
-        spectrogram = np.expand_dims(spectrogram, axis=0)
-        spectrogram = torch.from_numpy(spectrogram)
-
-        if self.transform:
-            spectrogram = self.transform(spectrogram)
-
-        return spectrogram, file_path
-
-def sample_from_distribution(mu, log_variance):
-
-    # point = mu + sigma*sample(N(0,1))
-    epsilon = torch.normal(torch.zeros(128).to(device), torch.ones(128).to(device))
-    sampled_point = mu + torch.exp(log_variance / 2) * epsilon
-
-    return sampled_point
 
 #################
 # Loss Functions
@@ -146,7 +115,7 @@ class Encoder(nn.Module):
         mu = self.Dense_E_1(Flat_E_1)
         log_variance = self.Dense_E_1(Flat_E_1)
 
-        z = sample_from_distribution(mu, log_variance)
+        z = sample_from_distribution(mu, log_variance, device, shape=(128))
 
         return z, mu, log_variance
 
@@ -267,9 +236,9 @@ def convert_spectrograms_to_audio(log_spectrograms, min_max_values):
 
     return signals
 
-def save_signals(signals, save_dir, sample_rate=22050):
+def save_signals(signals, file_paths ,save_dir, sample_rate=22050):
     for i, signal in enumerate(signals):
-        save_path = os.path.join(save_dir, str(i) + ".wav")
+        save_path = os.path.join(save_dir, "reconstructed_" + file_paths[i][74:-8] + ".wav")
         sf.write(save_path, signal, sample_rate)
 
 ## Script
@@ -312,7 +281,7 @@ if "main":
                 reconstruction_loss_sum += reconstruction_loss.item()*img.size(0)
             
             # print avg training statistics 
-            train_loss = train_loss/len(fsdd_dataloader)
+            train_loss = train_loss/len(fsdd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = kl_loss_sum/len(fsdd_dataloader)
             reconstruction_loss = reconstruction_loss_sum/len(fsdd_dataloader)
             print('Epoch: {}'.format(epoch+1),
@@ -347,7 +316,7 @@ if "main":
 
             reconstructed_signals = convert_spectrograms_to_audio(x_hat, sampled_min_max_values)
 
-            save_signals(reconstructed_signals, RECONSTRUCTION_SAVE_DIR)
+            save_signals(reconstructed_signals, file_paths, RECONSTRUCTION_SAVE_DIR)
 
             print(len(reconstructed_signals))
 
