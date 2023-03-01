@@ -1,17 +1,18 @@
 import sys
 sys.path.append('../')
 
-from models.vae import VAE
-from models.dataloaders import FSDDDataset
+from models.fsdd_vae import VAE
+from models.dataloaders import FSDDSpectrogramDataset
 from utils.audio_preprocessing import convert_spectrograms_to_audio, save_signals
 from models.loss_functions import calc_combined_loss
-from scripts.hyper_parameters import *
+from scripts.hyper_parameters_fsdd import *
 
 
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import pickle
+import time
 
 if __name__ == "__main__":
 
@@ -20,7 +21,7 @@ if __name__ == "__main__":
     model.to(DEVICE)
 
     train_dir = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/log_spectograms/" 
-    training_data = FSDDDataset(root_dir=train_dir)
+    training_data = FSDDSpectrogramDataset(root_dir=train_dir)
     fsdd_dataloader = torch.utils.data.DataLoader(training_data, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
 
     if TRAIN:
@@ -35,6 +36,7 @@ if __name__ == "__main__":
             train_loss = 0.0
             kl_loss_sum = 0.0
             reconstruction_loss_sum = 0.0
+            start = time.time()
             for data in fsdd_dataloader:
                 img, _ = data 
                 img = Variable(img).to(DEVICE)                       # we are just intrested in just images
@@ -50,6 +52,8 @@ if __name__ == "__main__":
                 reconstruction_loss_sum += reconstruction_loss.item()*img.size(0)
             
             # print avg training statistics 
+            end = time.time()
+            print(f"Epoch time: {end-start}s")
             train_loss = train_loss/len(fsdd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = kl_loss_sum/len(fsdd_dataloader)
             reconstruction_loss = reconstruction_loss_sum/len(fsdd_dataloader)

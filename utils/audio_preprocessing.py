@@ -5,9 +5,6 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-from scripts.hyper_parameters import *
-
-
 def convert_spectrograms_to_audio(log_spectrograms, min_max_values, hop_length):
     signals = []
     min_max_normaliser = MinMaxNormaliser(0, 1)
