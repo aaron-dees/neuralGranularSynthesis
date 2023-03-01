@@ -14,7 +14,7 @@ def calc_reconstruction_loss(target, prediction):
 
 def calc_kl_loss(mu, log_variance):
 
-    # KL Divergence
+    # KL Divergence between predicted gaussian distribution and standard guassian distribution N(0,1)
     kl_loss = - 0.5 * torch.sum(1 + log_variance - torch.square(mu) - torch.exp(log_variance))
 
     return kl_loss
