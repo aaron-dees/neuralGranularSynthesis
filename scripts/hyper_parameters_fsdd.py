@@ -5,7 +5,7 @@ import torch
 DEVICE = torch.device('cpu')
 
 # Mode and directories
-TRAIN = True
+TRAIN = False
 SAVE_MODEL = False
 LOAD_MODEL = True
 MODEL_PATH = '/Users/adees/Code/neural_granular_synthesis/models/saved_models/fsdd_vae_gpu_100epochs_10batch.pt'

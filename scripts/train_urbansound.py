@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from models.fsdd_vae import VAE
+from models.usd_vae import VAE
 from models.dataloaders import UrbanSoundDataset
 from utils.audio_preprocessing import convert_spectrograms_to_audio, save_signals
 from models.loss_functions import calc_combined_loss
@@ -13,6 +13,7 @@ import torch.nn as nn
 import torchaudio
 from torch.autograd import Variable
 import pickle
+import time
 
 if __name__ == "__main__":
 
@@ -28,47 +29,49 @@ if __name__ == "__main__":
         n_mels = NUM_MELS
     )
 
-    usd = UrbanSoundDataset(ANNOTATIONS_FILE, AUDIO_DIR, mel_spectrogram, SAMPLE_RATE, NUM_SAMPLES, DEVICE)
+    usd = UrbanSoundDataset(ANNOTATIONS_FILE, AUDIO_DIR, mel_spectrogram, SAMPLE_RATE, NUM_SAMPLES, DATALOADER_DEVICE)
 
     usd_dataloader = torch.utils.data.DataLoader(usd, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # if TRAIN:
+    if TRAIN:
 
-    #     ##########
-    #     # Training
-    #     ########## 
+        ##########
+        # Training
+        ########## 
 
-    #     optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
+        optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
         
-    #     for epoch in range(EPOCHS):
-    #         train_loss = 0.0
-    #         kl_loss_sum = 0.0
-    #         reconstruction_loss_sum = 0.0
-    #         for data in fsdd_dataloader:
-    #             img, _ = data 
-    #             img = Variable(img).to(DEVICE)                       # we are just intrested in just images
-    #             # no need to flatten images
-    #             optimizer.zero_grad()                   # clear the gradients
-    #             x_hat, z, mu, log_variance = model(img)                 # forward pass: compute predicted outputs 
-    #             loss, kl_loss, reconstruction_loss = calc_combined_loss(x_hat, img, mu, log_variance, 1000000)       # calculate the loss
-    #             loss.backward()                         # backward pass
-    #             optimizer.step()                        # perform optimization step
-    #             # I don't thinnk it's necisary to multiply by the batch size here in reporting the loss, or is it?
-    #             train_loss += loss.item()*img.size(0)  # update running training loss
-    #             kl_loss_sum += kl_loss.item()*img.size(0)
-    #             reconstruction_loss_sum += reconstruction_loss.item()*img.size(0)
+        for epoch in range(EPOCHS):
+            start = time.time()
+            train_loss = 0.0
+            kl_loss_sum = 0.0
+            reconstruction_loss_sum = 0.0
+            for data in usd_dataloader:
+                spec, label = data 
+                spec = Variable(spec).to(DEVICE)                       # we are just intrested in just images
+                # no need to flatten images
+                optimizer.zero_grad()                   # clear the gradients
+                x_hat, z, mu, log_variance = model(spec)                 # forward pass: compute predicted outputs 
+                loss, kl_loss, reconstruction_loss = calc_combined_loss(x_hat, spec, mu, log_variance, RECONSTRUCTION_LOSS_WEIGHT)       # calculate the loss
+                loss.backward()                         # backward pass
+                optimizer.step()                        # perform optimization step
+                # I don't thinnk it's necisary to multiply by the batch size here in reporting the loss, or is it?
+                train_loss += loss.item()*spec.size(0)  # update running training loss
+                kl_loss_sum += kl_loss.item()*spec.size(0)
+                reconstruction_loss_sum += reconstruction_loss.item()*spec.size(0)
             
-    #         # print avg training statistics 
-    #         train_loss = train_loss/len(fsdd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
-    #         kl_loss = kl_loss_sum/len(fsdd_dataloader)
-    #         reconstruction_loss = reconstruction_loss_sum/len(fsdd_dataloader)
-    #         print('Epoch: {}'.format(epoch+1),
-    #         '\tTraining Loss: {:.4f}'.format(train_loss))
-    #         print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
+            # print avg training statistics 
+            end = time.time()
+            train_loss = train_loss/len(usd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
+            kl_loss = kl_loss_sum/len(usd_dataloader)
+            reconstruction_loss = reconstruction_loss_sum/len(usd_dataloader)
+            print(f'Epoch Tain time: {end - start}s')
+            print('Epoch: {}'.format(epoch+1),
+            '\tTraining Loss: {:.4f}'.format(train_loss))
+            print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
 
-    #     if(SAVE_MODEL == True):
-    #         torch.save(model.state_dict(), MODEL_PATH)
-
+        if(SAVE_MODEL == True):
+            torch.save(model.state_dict(), MODEL_PATH)
 
     # else:
     #     with torch.no_grad():

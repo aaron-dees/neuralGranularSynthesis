@@ -81,6 +81,7 @@ class UrbanSoundDataset(torch.utils.data.Dataset):
         if length_signal < self.num_samples:
             num_missing_samples = self.num_samples - length_signal
             last_dim_padding = (0, num_missing_samples)
+            # last_dim_padding = (0, 1)
             signal = torch.nn.functional.pad(signal, last_dim_padding)
         
         return signal
@@ -88,7 +89,7 @@ class UrbanSoundDataset(torch.utils.data.Dataset):
     def _resample_if_necessary(self, signal, sr):
 
         if sr != self.target_sample_rate:
-            resampler = torchaudio.transforms.Resample(sr, self.target_sample_rate)
+            resampler = torchaudio.transforms.Resample(sr, self.target_sample_rate).to(self.device)
             signal = resampler(signal)
 
         return signal
