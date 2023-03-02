@@ -4,6 +4,23 @@ import pickle
 import librosa
 import numpy as np
 import soundfile as sf
+import torchaudio
+import torch
+
+
+## There seems to be an issue running this with torch.no_grad()
+def convert_mel_spectrograms_to_waveform(mel_spectrogram, sample_rate, n_stft, n_fft, n_mels, hop_length):
+    
+    # Invert the mel scale
+    spectrogram = torchaudio.transforms.InverseMelScale(sample_rate=sample_rate, n_stft = n_stft, n_mels = n_mels)(mel_spectrogram)
+
+    # Use griffin lim
+    waveform = torchaudio.transforms.GriffinLim(n_fft=n_fft, hop_length=hop_length)(spectrogram)
+
+    return waveform
+
+
+
 
 def convert_spectrograms_to_audio(log_spectrograms, min_max_values, hop_length):
     signals = []
