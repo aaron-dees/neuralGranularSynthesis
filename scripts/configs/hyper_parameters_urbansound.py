@@ -9,7 +9,7 @@ else:
 DATALOADER_DEVICE = torch.device('cpu')
 
 # Mode and directories
-WANDB = True
+WANDB = False
 TRAIN = True
 SAVE_MODEL = True
 LOAD_MODEL = True

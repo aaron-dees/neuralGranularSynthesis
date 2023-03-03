@@ -1,11 +1,11 @@
 import sys
 sys.path.append('../')
 
-from models.usd_vae import VAE
-from models.dataloaders import UrbanSoundDataset
+from models.spectrogram_models.usd_vae import VAE
+from models.dataloaders.spec_dataloaders import UrbanSoundDataset
 from utils.audio_preprocessing import convert_mel_spectrograms_to_waveform, save_signals
 from models.loss_functions import calc_combined_loss
-from scripts.hyper_parameters_urbansound import *
+from scripts.configs.hyper_parameters_urbansound import *
 
 
 import torch

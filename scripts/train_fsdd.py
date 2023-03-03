@@ -1,11 +1,11 @@
 import sys
 sys.path.append('../')
 
-from models.fsdd_vae import VAE
-from models.dataloaders import FSDDSpectrogramDataset
+from models.spectrogram_models.fsdd_vae import VAE
+from models.dataloaders.spec_dataloaders import FSDDSpectrogramDataset
 from utils.audio_preprocessing import convert_spectrograms_to_audio, save_signals
 from models.loss_functions import calc_combined_loss
-from scripts.hyper_parameters_fsdd import *
+from scripts.configs.hyper_parameters_fsdd import *
 
 
 import torch
