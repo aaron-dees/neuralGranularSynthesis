@@ -2,11 +2,14 @@ import torch
 import matplotlib.pyplot as plt
 
 # Sample from a gaussian distribution
-def sample_from_distribution(mu, log_variance, device, shape):
+def sample_from_distribution(mu, log_variance):
 
     # point = mu + sigma*sample(N(0,1))
-    epsilon = torch.normal(torch.zeros(shape).to(device), torch.ones(shape).to(device))
-    sampled_point = mu + torch.exp(log_variance / 2) * epsilon
+    
+    std = torch.exp(log_variance * 0.5)
+    # epsilon = torch.normal(torch.zeros(shape).to(device), torch.ones(shape).to(device))
+    epsilon = torch.randn_like(std)
+    sampled_point = mu + std * epsilon
 
     return sampled_point
 

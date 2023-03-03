@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 
 from utils.utilities import sample_from_distribution
-from scripts.configs.hyper_parameters_urbansound import BATCH_SIZE, DEVICE, LATENT_SIZE
+from scripts.configs.hyper_parameters_waveform import BATCH_SIZE, DEVICE, LATENT_SIZE
 
 
 import torch
@@ -10,9 +10,122 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import numpy as np
 
+# ------------
+# Waveform Model Components
+# ------------
+
+class stride_conv(nn.Module):
+    def __init__(self,kernel_size,in_channels,out_channels,stride):
+        super(stride_conv, self).__init__()
+        # kernel should be an odd number and stride an even number
+        self.conv = nn.Sequential(nn.ReflectionPad1d(kernel_size//2),
+                                  nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, stride=stride),
+                                  nn.BatchNorm1d(out_channels),nn.LeakyReLU(0.2))
+    
+    def forward(self, x):
+        # input and output of shape [bs,in_channels,L] --> [bs,out_channels,L//stride]
+        return self.conv(x)
+
+
+class residual_conv(nn.Module):
+    def __init__(self, channels,n_blocks=3):
+        super(residual_conv, self).__init__()
+        self.blocks = nn.ModuleList([
+            nn.Sequential(
+                nn.LeakyReLU(0.2),
+                nn.ReflectionPad1d(3**i),
+                nn.Conv1d(channels, channels, kernel_size=3, dilation=3**i),
+                nn.BatchNorm1d(channels),
+                nn.LeakyReLU(0.2),
+                nn.Conv1d(channels, channels, kernel_size=1),
+                nn.BatchNorm1d(channels))
+        for i in range(n_blocks)])
+        self.shortcuts = nn.ModuleList([
+            nn.Sequential(nn.Conv1d(channels, channels, kernel_size=1),
+                      nn.BatchNorm1d(channels))
+        for i in range(n_blocks)])
+    
+    def forward(self, x):
+        # input and output of shape [bs,channels,L]
+        for block, shortcut in zip(self.blocks, self.shortcuts):
+            x = shortcut(x) + block(x)
+        return x
+
+
+class linear_block(nn.Module):
+    def __init__(self, in_size,out_size,norm="BN"):
+        super(linear_block, self).__init__()
+        if norm=="BN":
+            self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.BatchNorm1d(out_size),nn.LeakyReLU(0.2))
+        if norm=="LN":
+            self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.LayerNorm(out_size),nn.LeakyReLU(0.2))
+    def forward(self, x):
+        return self.block(x)
+
 #############
 # Models
 #############
+
+class WaveformEncoder(nn.Module):
+
+    def __init__(self,
+                    kernel_size=9,
+                    channels=128,
+                    stride=4,
+                    n_convs=3,
+                    num_samples=2048,
+                    h_dim=512,
+                    z_dim=128
+                    ):
+        super(WaveformEncoder, self).__init__()
+
+        encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
+        encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
+        self.encoder_convs = nn.ModuleList(encoder_convs)
+         
+        self.flatten_size = int(channels*num_samples/(stride**n_convs))
+        self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
+        self.mu = nn.Linear(z_dim,z_dim)
+        self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+
+    def encode(self, x):
+
+        print(x.shape)
+        conv_x = x
+
+        # Convolutional layers
+        # x --> h
+        print(len(self.encoder_convs))
+        for conv in self.encoder_convs:
+            conv_x = conv(conv_x)
+
+        # flatten??
+        print("flatten")
+        print(conv_x.shape)
+        conv_x = conv_x.view(-1,self.flatten_size)
+        print("flatten done")
+
+        # Linear layer
+        h = self.encoder_linears(conv_x)
+        print("Linear Layer Done")
+
+        # h --> z
+        # h of shape [bs*n_grains,z_dim]
+        mu = self.mu(h)
+        logvar = self.logvar(h)
+
+        z = sample_from_distribution(mu, logvar)
+        return z, mu, logvar
+
+    def forward(self, audio):
+
+        z, mu, logvar = self.encode(audio)
+
+        return z, mu, logvar
+
+
+
+
 
 class Encoder(nn.Module):
     
@@ -69,7 +182,7 @@ class Encoder(nn.Module):
         
         log_variance = self.Dense_E_1(Flat_E_1)
 
-        z = sample_from_distribution(mu, log_variance)
+        z = sample_from_distribution(mu, log_variance, DEVICE, shape=LATENT_SIZE)
 
         return z, mu, log_variance
 
@@ -132,7 +245,7 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
 
         # Encoder and decoder components
-        self.Encoder = Encoder()
+        self.Encoder = WaveformEncoder()
         self.Decoder = Decoder()
 
         # Number of convolutional layers

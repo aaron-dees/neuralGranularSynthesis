@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 
 from utils.utilities import sample_from_distribution
-from scripts.hyper_parameters_fsdd import BATCH_SIZE, DEVICE, LATENT_SIZE
+from scripts.configs.hyper_parameters_fsdd import BATCH_SIZE, DEVICE, LATENT_SIZE
 
 
 import torch
