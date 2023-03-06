@@ -90,4 +90,4 @@ class WaveformDataset(torch.utils.data.Dataset):
         return path
     
     def _get_audio_sample_label(self, index):
-        return self.annotations.iloc[index, 7]
+        return self.annotations.iloc[index, 6]

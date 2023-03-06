@@ -10,15 +10,15 @@ DATALOADER_DEVICE = torch.device('cpu')
 
 # Mode and directories
 WANDB = False
-TRAIN = False
-SAVE_MODEL = True
+TRAIN = True
+SAVE_MODEL = False
 LOAD_MODEL = False
 MODEL_PATH = '/Users/adees/Code/neural_granular_synthesis/models/saved_models/waveform_vae_gpu_10epochs_2batch.pt'
 MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
 
 # Hyper Parameters
-BATCH_SIZE = 37
+BATCH_SIZE = 74
 EPOCHS = 20
 LEARNING_RATE = 0.0005
 LATENT_SIZE = 128

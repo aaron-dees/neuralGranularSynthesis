@@ -6,6 +6,7 @@ from models.dataloaders.waveform_dataloaders import WaveformDataset
 # from utils.audio_preprocessing import convert_mel_spectrograms_to_waveform, save_signals
 # from models.loss_functions import calc_combined_loss
 from scripts.configs.hyper_parameters_waveform import *
+from utils.utilities import plot_latents
 
 
 import torch
@@ -15,6 +16,7 @@ from torch.autograd import Variable
 import pickle
 import time
 import wandb
+import numpy as np
 
 # start a new wandb run to track this script
 if WANDB:
@@ -59,40 +61,42 @@ if __name__ == "__main__":
         # # Training
         # ########## 
 
-        # optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
+        optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
         
-        # for epoch in range(EPOCHS):
-        #     train_loss = 0.0
-        #     kl_loss_sum = 0.0
-        #     reconstruction_loss_sum = 0.0
-        #     for data in usd_dataloader:
-        #         spec, label = data 
-        #         spec = Variable(spec).to(DEVICE)                       # we are just intrested in just images
-        #         # no need to flatten images
-        #         optimizer.zero_grad()                   # clear the gradients
-        #         x_hat, z, mu, log_variance = model(spec)                 # forward pass: compute predicted outputs 
-        #         loss, kl_loss, reconstruction_loss = calc_combined_loss(x_hat, spec, mu, log_variance, RECONSTRUCTION_LOSS_WEIGHT)       # calculate the loss
-        #         loss.backward()                         # backward pass
-        #         optimizer.step()                        # perform optimization step
-        #         # I don't thinnk it's necisary to multiply by the batch size here in reporting the loss, or is it?
-        #         train_loss += loss.item()*spec.size(0)  # update running training loss
-        #         kl_loss_sum += kl_loss.item()*spec.size(0)
-        #         reconstruction_loss_sum += reconstruction_loss.item()*spec.size(0)
+        for epoch in range(EPOCHS):
+            train_loss = 0.0
+            kl_loss_sum = 0.0
+            reconstruction_loss_sum = 0.0
+            for data in usd_dataloader:
+                waveform, label = data 
+                waveform = Variable(waveform).to(DEVICE)                       # we are just intrested in just images
+                # no need to flatten images
+                optimizer.zero_grad()                   # clear the gradients
+                x_hat, z, mu, log_variance = model(waveform)                 # forward pass: compute predicted outputs 
+                loss, kl_loss, reconstruction_loss = calc_combined_loss(x_hat, spec, mu, log_variance, RECONSTRUCTION_LOSS_WEIGHT)       # calculate the loss
+            #     loss.backward()                         # backward pass
+            #     optimizer.step()                        # perform optimization step
+            #     # I don't thinnk it's necisary to multiply by the batch size here in reporting the loss, or is it?
+            #     train_loss += loss.item()*spec.size(0)  # update running training loss
+            #     kl_loss_sum += kl_loss.item()*spec.size(0)
+            #     reconstruction_loss_sum += reconstruction_loss.item()*spec.size(0)
+                print("Batch Done")
+            print("Epoch Done")
             
-        #     # print avg training statistics 
-        #     train_loss = train_loss/len(usd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
-        #     kl_loss = kl_loss_sum/len(usd_dataloader)
-        #     reconstruction_loss = reconstruction_loss_sum/len(usd_dataloader)
-        #     # wandb logging
-        #     if WANDB:
-        #         wandb.log({"recon_loss": reconstruction_loss, "kl_loss": kl_loss, "loss": train_loss})
+            # # print avg training statistics 
+            # train_loss = train_loss/len(usd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
+            # kl_loss = kl_loss_sum/len(usd_dataloader)
+            # reconstruction_loss = reconstruction_loss_sum/len(usd_dataloader)
+            # # wandb logging
+            # if WANDB:
+            #     wandb.log({"recon_loss": reconstruction_loss, "kl_loss": kl_loss, "loss": train_loss})
 
-        #     print('Epoch: {}'.format(epoch+1),
-        #     '\tTraining Loss: {:.4f}'.format(train_loss))
-        #     print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
+            # print('Epoch: {}'.format(epoch+1),
+            # '\tTraining Loss: {:.4f}'.format(train_loss))
+            # print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
 
-        # if(SAVE_MODEL == True):
-        #     torch.save(model.state_dict(), MODEL_PATH)
+        if(SAVE_MODEL == True):
+            torch.save(model.state_dict(), MODEL_PATH)
 
     else:
         # with torch.no_grad():
@@ -106,11 +110,32 @@ if __name__ == "__main__":
         spec, labels = next(dataiter)
         spec = spec.to(DEVICE)
             
-        x_hat ,z, mu, logvar = model(spec)                     # get sample outputs
+        x_hat, z, mu, logvar = model(spec)                     # get sample outputs
+        
+        z = z.reshape(z.shape[0] ,1, z.shape[1])
+        z = z.detach()
 
+        labels = np.asarray(labels)
+        labels = torch.from_numpy(labels)
+
+
+        classes = ["air_conditioner", 
+                    "car_horn", 
+                    "children_playing", 
+                    "dog_bark", 
+                    "drilling", 
+                    "engine_idling", 
+                    "gun_shot", 
+                    "jackhammer", 
+                    "siren", 
+                    "street_music"]
+
+        print(z.shape)
+        print(len(labels))
+        plot_latents(z,labels, classes,"./")
 
         print(f"Reconstruction shape: {x_hat.shape}")
-        print(z.shape)
+        
         print(mu.shape)
         print(logvar.shape)
         print("Reconstructions saved")
