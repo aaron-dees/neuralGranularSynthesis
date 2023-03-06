@@ -3,6 +3,7 @@ sys.path.append('../')
 
 from utils.utilities import sample_from_distribution
 from scripts.configs.hyper_parameters_waveform import BATCH_SIZE, DEVICE, LATENT_SIZE
+from utils.dsp_components import noise_filtering, mod_sigmoid
 
 
 import torch
@@ -90,24 +91,18 @@ class WaveformEncoder(nn.Module):
 
     def encode(self, x):
 
-        print(x.shape)
         conv_x = x
 
         # Convolutional layers
         # x --> h
-        print(len(self.encoder_convs))
         for conv in self.encoder_convs:
             conv_x = conv(conv_x)
 
         # flatten??
-        print("flatten")
-        print(conv_x.shape)
         conv_x = conv_x.view(-1,self.flatten_size)
-        print("flatten done")
 
         # Linear layer
         h = self.encoder_linears(conv_x)
-        print("Linear Layer Done")
 
         # h --> z
         # h of shape [bs*n_grains,z_dim]
@@ -123,139 +118,87 @@ class WaveformEncoder(nn.Module):
 
         return z, mu, logvar
 
+class WaveformDecoder(nn.Module):
+
+    def __init__(self,
+                    n_linears=3,
+                    num_samples = 2048,
+                    h_dim=512,
+                    z_dim=128
+                    ):
+        super(WaveformDecoder, self).__init__()
+
+        self.num_samples = num_samples
+        self.filter_size = num_samples//2+1
+
+        decoder_linears = [linear_block(z_dim,h_dim)]
+        decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
+        decoder_linears += [nn.Linear(h_dim,self.filter_size)]
+        self.decoder_linears = nn.Sequential(*decoder_linears)
+
+        self.filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(num_samples)),requires_grad=False).to(DEVICE)
 
 
+    def decode(self, z):
 
+        filter_coeffs = self.decoder_linears(z)
 
-class Encoder(nn.Module):
-    
-    def __init__(self):
-        super(Encoder, self).__init__()
+        # What does this do??
+        filter_coeffs = mod_sigmoid(filter_coeffs)
 
-        self.Conv_E_1 = nn.Conv2d(1, 512, stride=2, kernel_size=3, padding=3//2)
-        self.Conv_E_2= nn.Conv2d(512, 256, stride=2, kernel_size=3, padding=3//2)
-        self.Conv_E_3= nn.Conv2d(256, 128, stride=(2,1), kernel_size=3, padding=3//2)
-        self.Conv_E_4= nn.Conv2d(128, 64, stride=(2,1), kernel_size=3, padding=3//2)
-        self.Conv_E_5= nn.Conv2d(64, 32, stride=(2,1), kernel_size=3, padding=3//2)
-        # Dense layer based on the striding used in conv layers
-        self.Dense_E_1 = nn.Linear(32 * int(64/pow(2,5)) * int(44/pow(2,2)), LATENT_SIZE)
+        audio = noise_filtering(filter_coeffs, self.filter_window)
 
-        self.Flat_E_1 = nn.Flatten()
+        # use below if we were using grains
+        # audio = audio.reshape(-1,n_grains,self.hparams.l_grain)
+        audio = audio.reshape(-1,1,self.num_samples)
 
-        self.Norm_E_1 = nn.BatchNorm2d(512)
-        self.Norm_E_2 = nn.BatchNorm2d(256)
-        self.Norm_E_3 = nn.BatchNorm2d(128)
-        self.Norm_E_4 = nn.BatchNorm2d(64)
-        self.Norm_E_5 = nn.BatchNorm2d(32)
-
-
-        self.Act_E_1 = nn.ReLU()
-
-
-    def forward(self, x):
-
-        # x ---> z
-
-        # Conv layer 1
-        Conv_E_1 = self.Conv_E_1(x)
-        Act_E_1 = self.Act_E_1(Conv_E_1)
-        Norm_E_1 = self.Norm_E_1(Act_E_1)
-        # Conv layer 2
-        Conv_E_2 = self.Conv_E_2(Norm_E_1)
-        Act_E_2 = self.Act_E_1(Conv_E_2)
-        Norm_E_2 = self.Norm_E_2(Act_E_2)
-        # Conv layer 3 
-        Conv_E_3 = self.Conv_E_3(Norm_E_2)
-        Act_E_3 = self.Act_E_1(Conv_E_3)
-        Norm_E_3 = self.Norm_E_3(Act_E_3)
-        # Conv layer 4
-        Conv_E_4 = self.Conv_E_4(Norm_E_3)
-        Act_E_4 = self.Act_E_1(Conv_E_4)
-        Norm_E_4 = self.Norm_E_4(Act_E_4)
-        # Conv layer 5
-        Conv_E_5 = self.Conv_E_5(Norm_E_4)
-        Act_E_5 = self.Act_E_1(Conv_E_5)
-        Norm_E_5 = self.Norm_E_5(Act_E_5)
-        # Dense layer for mu and log variance
-        Flat_E_1 = self.Flat_E_1(Norm_E_5)
-        mu = self.Dense_E_1(Flat_E_1)
-        
-        log_variance = self.Dense_E_1(Flat_E_1)
-
-        z = sample_from_distribution(mu, log_variance, DEVICE, shape=LATENT_SIZE)
-
-        return z, mu, log_variance
-
-class Decoder(nn.Module):
-
-    def __init__(self):
-        super(Decoder, self).__init__()
-
-        # Check is calculating this power and cast kills performance
-        self.Dense_D_1 = nn.Linear(LATENT_SIZE, 32 * int(64/pow(2,5)) * int(44/pow(2,2)))
-        self.ConvT_D_1 = nn.ConvTranspose2d(32, 32, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
-        # Note the need to add output padding here for tranposed dimensions to match
-        self.ConvT_D_2 = nn.ConvTranspose2d(32, 64, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
-        self.ConvT_D_3 = nn.ConvTranspose2d(64, 128, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
-        self.ConvT_D_4 = nn.ConvTranspose2d(128, 256, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
-        self.ConvT_D_5 = nn.ConvTranspose2d(256, 1, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
-        
-        self.Norm_D_1 = nn.BatchNorm2d(32)
-        self.Norm_D_2 = nn.BatchNorm2d(64)
-        self.Norm_D_3 = nn.BatchNorm2d(128)
-        self.Norm_D_4 = nn.BatchNorm2d(256)
-
-        self.Act_D_1 = nn.ReLU()
-        self.Act_D_2 = nn.Sigmoid()
+        return audio
 
     def forward(self, z):
 
-        # z ---> x_hat
+        audio = self.decode(z)
 
-        # Dense Layer
-        Dense_D_1 = self.Dense_D_1(z)
-        # TODO: Find a nicer way of doing this programatically
-        # Reshape based on the number striding used in encoder
-        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, int(64/pow(2,5)), int(44/pow(2,2))))
-        # Conv layer 1
-        Conv_D_1 = self.ConvT_D_1(Reshape_D_1)
-        Act_D_1 = self.Act_D_1(Conv_D_1)
-        Norm_D_1 = self.Norm_D_1(Act_D_1)
-        # Conv layer 2
-        Conv_D_2 = self.ConvT_D_2(Norm_D_1)
-        Act_D_2 = self.Act_D_1(Conv_D_2)
-        Norm_D_2 = self.Norm_D_2(Act_D_2)
-        # Conv layer 3
-        Conv_D_3 = self.ConvT_D_3(Norm_D_2)
-        Act_D_3 = self.Act_D_1(Conv_D_3)
-        Norm_D_3 = self.Norm_D_3(Act_D_3)
-        # Conv layer 4
-        Conv_D_4 = self.ConvT_D_4(Norm_D_3)
-        Act_D_4 = self.Act_D_1(Conv_D_4)
-        Norm_D_4 = self.Norm_D_4(Act_D_4)
-        # Conv layer 5 (output)
-        Conv_D_5= self.ConvT_D_5(Norm_D_4)
-        x_hat = self.Act_D_2(Conv_D_5)
+        return audio
 
-        return x_hat
+class WaveformVAE(nn.Module):
 
-class VAE(nn.Module):
-
-    def __init__(self):
-        super(VAE, self).__init__()
+    def __init__(self,
+                    kernel_size=9,
+                    channels=128,
+                    stride=4,
+                    n_convs=3,
+                    n_linears = 3,
+                    num_samples=2048,
+                    h_dim=512,
+                    z_dim=128
+                    ):
+        super(WaveformVAE, self).__init__()
 
         # Encoder and decoder components
-        self.Encoder = WaveformEncoder()
-        self.Decoder = Decoder()
+        self.Encoder = WaveformEncoder(kernel_size=kernel_size,
+                    channels=channels,
+                    stride=stride,
+                    n_convs=n_convs,
+                    num_samples=num_samples,
+                    h_dim=h_dim,
+                    z_dim=z_dim)
+        self.Decoder = WaveformDecoder(n_linears=n_linears,
+                    num_samples = num_samples,
+                    h_dim=h_dim,
+                    z_dim=z_dim)
 
         # Number of convolutional layers
 
-    def forward(self, x):
+    def forward(self, x, sampling=True):
 
         # x ---> z
         z, mu, log_variance = self.Encoder(x);
 
         # z ---> x_hat
-        x_hat = self.Decoder(z)
+        # Note in paper they also have option passing mu into the decoder and not z
+        if sampling:
+            x_hat = self.Decoder(z)
+        else:
+            x_hat = self.Decoder(mu)
 
         return x_hat, z, mu, log_variance

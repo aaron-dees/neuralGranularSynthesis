@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from models.waveform_models.usd_waveform_model import WaveformEncoder
+from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformDecoder, WaveformVAE
 from models.dataloaders.waveform_dataloaders import WaveformDataset
 # from utils.audio_preprocessing import convert_mel_spectrograms_to_waveform, save_signals
 # from models.loss_functions import calc_combined_loss
@@ -36,14 +36,15 @@ if WANDB:
 
 if __name__ == "__main__":
 
-    model = WaveformEncoder(kernel_size=9,
+    model = WaveformVAE(kernel_size=9,
                     channels=128,
                     stride=4,
                     n_convs=3,
+                    n_linears=3,
                     num_samples=NUM_SAMPLES,
                     h_dim=512,
                     z_dim=128)
-
+    
     model.to(DEVICE)
 
     usd_waveforms = WaveformDataset(ANNOTATIONS_FILE, AUDIO_DIR, None, SAMPLE_RATE, NUM_SAMPLES, DATALOADER_DEVICE)
@@ -105,11 +106,13 @@ if __name__ == "__main__":
         spec, labels = next(dataiter)
         spec = spec.to(DEVICE)
             
-        z, _, _ = model(spec)                     # get sample outputs
+        x_hat ,z, mu, logvar = model(spec)                     # get sample outputs
 
+
+        print(f"Reconstruction shape: {x_hat.shape}")
         print(z.shape)
-
-
+        print(mu.shape)
+        print(logvar.shape)
         print("Reconstructions saved")
 
             # plot the first ten input images and then reconstructed images

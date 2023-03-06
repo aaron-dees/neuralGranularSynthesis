@@ -22,7 +22,7 @@ BATCH_SIZE = 2
 EPOCHS = 20
 LEARNING_RATE = 0.0005
 LATENT_SIZE = 128
-RECONSTRUCTION_LOSS_WEIGHT = 1000000000
+RECONSTRUCTION_LOSS_WEIGHT = 1000000
 
 # Audio Processing Parameters
 ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/metadata/UrbanSound8K.csv"
