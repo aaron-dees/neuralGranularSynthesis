@@ -23,7 +23,7 @@ if WANDB:
     wandb.init(
         # set the wandb project where this run will be logged
         project="urbanSound_waveformVAE",
-        name= "run_0.0005lr_37batch_10epochs_128latentsize",
+        name= "run_0.0005lr_37batch_10epochs_128latentsize_beta0.0001_envdist0",
     
         # track hyperparameters and run metadata
         config={
@@ -32,7 +32,8 @@ if WANDB:
         "dataset": "UrbanSound8K",
         "epochs": EPOCHS,
         "latent size": LATENT_SIZE,
-        "recon loss weight": RECONSTRUCTION_LOSS_WEIGHT, 
+        "env_dist": ENV_DIST,
+        "beta": BETA
         }
     )
 
@@ -78,18 +79,19 @@ if __name__ == "__main__":
                 spec_dist = spectral_distances(sr=SAMPLE_RATE)
                 spec_loss = spec_dist(x_hat, waveform)
                 # Notes this won't work when using grains, need to look into this
-                env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True)
+                if ENV_DIST > 0:
+                    env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True)
+                else:
+                    env_loss = 0
 
-                loss = kld + spec_loss + env_loss
+                loss = (kld*BETA) + spec_loss + (env_loss*ENV_DIST)
                 loss.backward()                         # backward pass
                 optimizer.step()                        # perform optimization step
-
-                # print(f'Batch Loss: {loss}: {kld}, {spec_loss}, {env_loss}')
 
                 train_loss += loss.item() 
                 kl_loss_sum += kld.item()
                 spec_loss_sum += spec_loss.item()
-                env_loss_sum += env_loss.item()
+                env_loss_sum += env_loss
 
             
             # print avg training statistics 
