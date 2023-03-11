@@ -53,7 +53,12 @@ if __name__ == "__main__":
 
     usd_waveforms = WaveformDataset(ANNOTATIONS_FILE, AUDIO_DIR, None, SAMPLE_RATE, NUM_SAMPLES, DATALOADER_DEVICE)
 
-    usd_dataloader = torch.utils.data.DataLoader(usd_waveforms, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
+    # Split into train and validation
+    # Program this better
+    split = [(5*len(usd_waveforms))//6, (1*len(usd_waveforms))//6+1]
+    train_set, val_set = torch.utils.data.random_split(usd_waveforms, split)
+    train_dataloader = torch.utils.data.DataLoader(train_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
+    val_dataloader = torch.utils.data.DataLoader(val_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
 
     if TRAIN:
 
@@ -74,20 +79,28 @@ if __name__ == "__main__":
             start_epoch = checkpoint['epoch']
             train_loss = checkpoint['loss']
 
-            # Put model in training mode
-            model.train()
 
             print("----- Checkpoint File Loaded -----")
             print(f'Epoch: {start_epoch}')
             print(f'Loss: {train_loss}')
 
+        # Model in training mode
+        
         
         for epoch in range(start_epoch, EPOCHS):
-            train_loss = 0.0
-            kl_loss_sum = 0.0
-            spec_loss_sum = 0.0
-            env_loss_sum = 0.0
-            for data in usd_dataloader:
+
+            # Turn gradient trackin on for training loop
+            model.train()
+
+            ###############
+            # Training loop - maybe abstract this out
+            ###############
+            running_train_loss = 0.0
+            running_kl_loss = 0.0
+            running_spec_loss = 0.0
+            running_env_loss = 0.0
+
+            for data in train_dataloader:
                 waveform, label = data 
                 waveform = Variable(waveform).to(DEVICE)                       # we are just intrested in just images
                 # no need to flatten images
@@ -111,22 +124,63 @@ if __name__ == "__main__":
                 optimizer.step()                        # perform optimization step
 
                 # Accumulate loss for reporting
-                train_loss += loss.item() 
-                kl_loss_sum += kld.item()
-                spec_loss_sum += spec_loss.item()
-                env_loss_sum += env_loss
+                running_train_loss += loss.item() 
+                running_kl_loss += kld.item()
+                running_spec_loss += spec_loss.item()
+                running_env_loss += env_loss
 
-            # print avg training statistics 
-            train_loss = train_loss/len(usd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
-            kl_loss = kl_loss_sum/len(usd_dataloader)
-            spec_loss = spec_loss_sum/len(usd_dataloader)
-            env_loss = env_loss_sum/len(usd_dataloader)
+            # get avg training statistics 
+            train_loss = running_train_loss/len(train_dataloader) # does len(fsdd_dataloader) return the number of batches ?
+            kl_loss = running_kl_loss/len(train_dataloader)
+            spec_loss = running_spec_loss/len(train_dataloader)
+            env_loss = running_env_loss/len(train_dataloader)
+
+            # Validate - turn gradient tracking off for validation. 
+            model.eval()
+            
+            #################
+            # Validation loop - maybe abstract this out
+            #################
+            running_val_loss = 0.0
+            running_kl_val_loss = 0.0
+            running_spec_val_loss = 0.0
+            running_env_val_loss = 0.0
+
+            with torch.no_grad():
+                for data in val_dataloader:
+                    waveform, label = data 
+                    waveform = waveform.to(DEVICE)
+                    x_hat, z, mu, log_variance = model(waveform)
+                    # Compute loss
+                    kld = compute_kld(mu, log_variance)
+                    spec_dist = spectral_distances(sr=SAMPLE_RATE)
+                    spec_loss = spec_dist(x_hat, waveform)
+                    # Notes this won't work when using grains, need to look into this
+                    if ENV_DIST > 0:
+                        env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True)
+                    else:
+                        env_loss = 0
+
+                    loss = (kld*BETA) + spec_loss + (env_loss*ENV_DIST)
+
+                    running_val_loss += loss.item()
+                    running_kl_val_loss += kld.item()
+                    running_spec_val_loss += spec_loss.item()
+                    running_env_val_loss += env_loss
+                
+                # Get avg stats
+                val_loss = running_val_loss/len(val_dataloader)
+                kl_val_loss = running_kl_val_loss/len(val_dataloader)
+                spec_val_loss = running_spec_val_loss/len(val_dataloader)
+                env_val_loss = running_env_val_loss/len(val_dataloader)
+
             # wandb logging
             if WANDB:
-                wandb.log({"kl_loss": kl_loss, "spec_loss": spec_loss, "env_loss": env_loss, "loss": train_loss})
+                wandb.log({"kl_loss": kl_loss, "spec_loss": spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
 
             print('Epoch: {}'.format(epoch+1),
             '\tTraining Loss: {:.4f}'.format(train_loss))
+            print(f'Validations Loss: {val_loss}')
 
             if SAVE_CHECKPOINT:
                 if epoch % CHECKPOINT_REGULAIRTY == 0:
@@ -161,7 +215,7 @@ if __name__ == "__main__":
         model.eval()
 
         # Lets get batch of test images
-        dataiter = iter(usd_dataloader)
+        dataiter = iter(train_dataloader)
         spec, labels = next(dataiter)
         spec = spec.to(DEVICE)
             
