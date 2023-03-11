@@ -8,21 +8,13 @@ DEVICE = torch.device("cpu")
 # having issues with padding on Apple GPU
 DATALOADER_DEVICE = torch.device('cpu')
 
-# Mode and directories
-WANDB = True
-TRAIN = True
-SAVE_MODEL = True
-LOAD_MODEL = False
-MODEL_PATH = '/Users/adees/Code/neural_granular_synthesis/models/saved_models/waveform_vae_cpu_10epochs_37batch.pt'
-MIN_MAX_VALUES_PATH = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/min_max_values.pkl"
-RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
-
 # Hyper Parameters
-BATCH_SIZE = 37
-EPOCHS = 10
+BATCH_SIZE = 64
+EPOCHS = 100
 LEARNING_RATE = 0.0005
 LATENT_SIZE = 128
-RECONSTRUCTION_LOSS_WEIGHT = 1000000000
+ENV_DIST = 0
+BETA = 0.0001
 KERNEL_SIZE = 3
 
 # Audio Processing Parameters
@@ -36,6 +28,13 @@ NUM_SAMPLES = 2048
 SAMPLE_RATE = 22050
 DURATION = NUM_SAMPLES / SAMPLE_RATE # SECONDS
 MONO = True
-SPECTROGRAMS_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/log_spectograms"
-MIN_MAX_VALUES_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd"
-FILES_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/recordings"
+
+# Mode and directories
+WANDB = False
+TRAIN = True
+SAVE_CHECKPOINT = False
+CHECKPOINT_REGULAIRTY = 1
+LOAD_CHECKPOINT = False
+VIEW_LATENT = True
+RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
+CHECKPOINT_FILE_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"

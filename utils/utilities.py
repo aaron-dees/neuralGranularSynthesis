@@ -60,5 +60,6 @@ def plot_latents(train_latents,train_labels, classes,export_dir):
     plt.savefig(os.path.join(export_dir,"latent_scatter_trainset.pdf"))
     plt.close("all")
 
+# Safe log for cases where x is very close to zero
 def safe_log(x, eps=1e-7):
     return torch.log(x + eps)

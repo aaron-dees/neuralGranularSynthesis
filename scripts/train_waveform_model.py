@@ -3,7 +3,6 @@ sys.path.append('../')
 
 from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformDecoder, WaveformVAE
 from models.dataloaders.waveform_dataloaders import WaveformDataset
-# from utils.audio_preprocessing import convert_mel_spectrograms_to_waveform, save_signals
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
 from utils.utilities import plot_latents
@@ -17,6 +16,8 @@ import pickle
 import time
 import wandb
 import numpy as np
+from datetime import datetime
+
 
 # start a new wandb run to track this script
 if WANDB:
@@ -56,15 +57,32 @@ if __name__ == "__main__":
 
     if TRAIN:
 
-        print("Training")
+        print("Training Mode")
 
-        # ##########
-        # # Training
-        # ########## 
+        ###########
+        # Training
+        ########### 
 
         optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
+
+        start_epoch = 0
+
+        if LOAD_CHECKPOINT:
+            checkpoint = torch.load(CHECKPOINT_FILE_PATH)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch']
+            train_loss = checkpoint['loss']
+
+            # Put model in training mode
+            model.train()
+
+            print("----- Checkpoint File Loaded -----")
+            print(f'Epoch: {start_epoch}')
+            print(f'Loss: {train_loss}')
+
         
-        for epoch in range(EPOCHS):
+        for epoch in range(start_epoch, EPOCHS):
             train_loss = 0.0
             kl_loss_sum = 0.0
             spec_loss_sum = 0.0
@@ -75,6 +93,8 @@ if __name__ == "__main__":
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
                 x_hat, z, mu, log_variance = model(waveform)                 # forward pass: compute predicted outputs 
+
+                # Compute loss
                 kld = compute_kld(mu, log_variance)
                 spec_dist = spectral_distances(sr=SAMPLE_RATE)
                 spec_loss = spec_dist(x_hat, waveform)
@@ -85,15 +105,17 @@ if __name__ == "__main__":
                     env_loss = 0
 
                 loss = (kld*BETA) + spec_loss + (env_loss*ENV_DIST)
+
+                # Compute gradients and update weights
                 loss.backward()                         # backward pass
                 optimizer.step()                        # perform optimization step
 
+                # Accumulate loss for reporting
                 train_loss += loss.item() 
                 kl_loss_sum += kld.item()
                 spec_loss_sum += spec_loss.item()
                 env_loss_sum += env_loss
 
-            
             # print avg training statistics 
             train_loss = train_loss/len(usd_dataloader) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = kl_loss_sum/len(usd_dataloader)
@@ -105,17 +127,38 @@ if __name__ == "__main__":
 
             print('Epoch: {}'.format(epoch+1),
             '\tTraining Loss: {:.4f}'.format(train_loss))
-            # print(f'--- KL Loss: {kl_loss}; Reconstruction Loss: {reconstruction_loss}')
 
-        if(SAVE_MODEL == True):
-            torch.save(model.state_dict(), MODEL_PATH)
+            if SAVE_CHECKPOINT:
+                if epoch % CHECKPOINT_REGULAIRTY == 0:
+                    torch.save({
+                        'epoch': epoch+1,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': train_loss,
+                        }, f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_{datetime.now()}.pt")
+                    # Save as latest also
+                    torch.save({
+                        'epoch': epoch+1,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': train_loss,
+                        }, f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt")
 
     else:
-        # with torch.no_grad():
 
-            # Load Model
-        if(LOAD_MODEL == True):
-            model.load_state_dict(torch.load(MODEL_PATH))
+        print("----- Inference Mode -----")
+
+        ###########
+        # Inference
+        ########### 
+
+        # with torch.no_grad():
+        if LOAD_CHECKPOINT:
+            checkpoint = torch.load(CHECKPOINT_FILE_PATH)
+            model.load_state_dict(checkpoint['model_state_dict'])
+
+        # Put model in eval mode
+        model.eval()
 
         # Lets get batch of test images
         dataiter = iter(usd_dataloader)
@@ -142,18 +185,6 @@ if __name__ == "__main__":
                     "siren", 
                     "street_music"]
 
-        print(z.shape)
-        print(len(labels))
-        plot_latents(z,labels, classes,"./")
+        if VIEW_LATENT:
+            plot_latents(z,labels, classes,"./")
 
-        print(f"Reconstruction shape: {x_hat.shape}")
-        
-        print(mu.shape)
-        print(logvar.shape)
-        print("Reconstructions saved")
-
-            # plot the first ten input images and then reconstructed images
-            # show_image_comparisons(images, x_hat)
-            # show_latent_space(z.detach().cpu().numpy(), labels)
-
-    
