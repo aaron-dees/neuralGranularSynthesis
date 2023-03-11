@@ -60,6 +60,10 @@ if __name__ == "__main__":
     train_dataloader = torch.utils.data.DataLoader(train_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
     val_dataloader = torch.utils.data.DataLoader(val_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
 
+    test_set = torch.utils.data.Subset(usd_waveforms, range(0,TEST_SIZE))
+    test_dataloader = torch.utils.data.DataLoader(val_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
+
+
     if TRAIN:
 
         print("Training Mode")
@@ -183,7 +187,7 @@ if __name__ == "__main__":
             print(f'Validations Loss: {val_loss}')
 
             if SAVE_CHECKPOINT:
-                if epoch % CHECKPOINT_REGULAIRTY == 0:
+                if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
                     torch.save({
                         'epoch': epoch+1,
                         'model_state_dict': model.state_dict(),
@@ -215,11 +219,11 @@ if __name__ == "__main__":
         model.eval()
 
         # Lets get batch of test images
-        dataiter = iter(train_dataloader)
-        spec, labels = next(dataiter)
-        spec = spec.to(DEVICE)
+        dataiter = iter(test_dataloader)
+        signal, labels = next(dataiter)
+        signal = signal.to(DEVICE)
             
-        x_hat, z, mu, logvar = model(spec)                     # get sample outputs
+        x_hat, z, mu, logvar = model(signal)                     # get sample outputs
         
         z = z.reshape(z.shape[0] ,1, z.shape[1])
         z = z.detach()
@@ -241,4 +245,10 @@ if __name__ == "__main__":
 
         if VIEW_LATENT:
             plot_latents(z,labels, classes,"./")
+        
+        if SAVE_RECONSTRUCTIONS:
+            for i, signal in enumerate(x_hat):
+                torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
+                print(f'{classes[labels[i]]} saved')
+
 

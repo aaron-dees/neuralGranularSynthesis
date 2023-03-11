@@ -10,11 +10,12 @@ DATALOADER_DEVICE = torch.device('cpu')
 
 # Hyper Parameters
 BATCH_SIZE = 64
-EPOCHS = 100
+TEST_SIZE = 10
+EPOCHS = 20
 LEARNING_RATE = 0.0005
 LATENT_SIZE = 128
 ENV_DIST = 0
-BETA = 0.0001
+BETA = 0.0000001
 KERNEL_SIZE = 3
 
 # Audio Processing Parameters
@@ -31,10 +32,12 @@ MONO = True
 
 # Mode and directories
 WANDB = False
-TRAIN = True
+TRAIN = False
 SAVE_CHECKPOINT = False
-CHECKPOINT_REGULAIRTY = 1
-LOAD_CHECKPOINT = False
-VIEW_LATENT = True
+CHECKPOINT_REGULAIRTY = 5
+LOAD_CHECKPOINT = True
+VIEW_LATENT = False
+SAVE_RECONSTRUCTIONS = True
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions"
-CHECKPOINT_FILE_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"
+# CHECKPOINT_FILE_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"
+CHECKPOINT_FILE_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{64}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"
