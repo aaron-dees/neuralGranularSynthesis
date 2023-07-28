@@ -221,6 +221,8 @@ if __name__ == "__main__":
         # Lets get batch of test images
         dataiter = iter(test_dataloader)
         signal, labels = next(dataiter)
+        print(signal.shape)
+        print(labels.shape)
         signal = signal.to(DEVICE)
             
         x_hat, z, mu, logvar = model(signal)                     # get sample outputs

@@ -91,3 +91,95 @@ class WaveformDataset(torch.utils.data.Dataset):
     
     def _get_audio_sample_label(self, index):
         return self.annotations.iloc[index, 6]
+    
+class ESC50WaveformDataset(torch.utils.data.Dataset):
+
+    def __init__(self, 
+                    annotations_file, 
+                    root_dir, 
+                    transform, 
+                    target_sample_rate,
+                    num_samples,
+                    device):
+
+        self.device = device
+        # self.annotations = pd.read_csv(annotations_file)
+        self.root_dir = root_dir
+        self.transform = None
+        if transform:
+            self.transform = transform.to(self.device)
+        self.target_sample_rate = target_sample_rate
+        self.num_samples = num_samples
+        self.filenames = os.listdir(root_dir)
+        # print(self.filenames)
+        
+
+    def __len__(self):
+        # return len(self.annotations)
+        return len(self.filenames)
+    
+    def __getitem__(self, index):
+        audio_sample_path = self._get_audio_sample_path(index)
+        label = self._get_audio_sample_label(index)
+        signal, sr = torchaudio.load(audio_sample_path)
+        signal = signal.to(self.device)
+        signal = self._resample_if_necessary(signal, sr)
+        signal = self._mix_down_if_necessary(signal)
+        # Cut / Pad so all signals are same duration
+        signal = self._cut_if_necessary(signal)
+        signal = self._right_pad_if_necessary(signal)
+
+        if self.transform:
+            signal = self.transform(signal)
+            
+
+        return signal, label
+    
+    def _cut_if_necessary(self, signal):
+        
+        if signal.shape[1] > self.num_samples:
+            signal = signal[: , :self.num_samples]
+        
+        return signal
+    
+    def _right_pad_if_necessary(self, signal):
+
+        length_signal = signal.shape[1]
+
+        if length_signal < self.num_samples:
+            num_missing_samples = self.num_samples - length_signal
+            last_dim_padding = (0, num_missing_samples)
+            signal = torch.nn.functional.pad(signal, last_dim_padding)
+        
+        return signal
+
+    def _resample_if_necessary(self, signal, sr):
+
+        if sr != self.target_sample_rate:
+            resampler = torchaudio.transforms.Resample(sr, self.target_sample_rate).to(self.device)
+            signal = resampler(signal)
+
+        return signal
+
+    def _mix_down_if_necessary(self, signal):
+
+        if signal.shape[0] > 1:
+            signal = torch.mean(signal, dim=0, keepdim=True)
+        
+        return signal
+
+
+    def _get_audio_sample_path(self, index):
+
+        # fold = f"fold{self.annotations.iloc[index, 5]}"
+        # path = os.path.join(self.root_dir, 
+        #                     self.annotations.iloc[index, 0])
+        path = os.path.join(self.root_dir, 
+                            self.filenames[index])
+                        
+        return path
+    
+    def _get_audio_sample_label(self, index):
+        # return self.annotations.iloc[index, 2]
+        # return self.annotations.iloc[index, 0]
+        return self.filenames[index]

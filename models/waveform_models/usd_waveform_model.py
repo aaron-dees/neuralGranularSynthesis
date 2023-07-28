@@ -28,9 +28,15 @@ class stride_conv(nn.Module):
         return self.conv(x)
 
 
+# Residual network containing blocks and convolutional skip connections
+# Model using residual blocks containing dilated convolutions, 
+# note it doesn't look like we're using causal convolutions here.
+# It may be interesting to add the storing of skip connections like in wavenet?
 class residual_conv(nn.Module):
     def __init__(self, channels,n_blocks=3):
         super(residual_conv, self).__init__()
+        self.refpad = nn.ReflectionPad1d(3**1)
+        # Block
         self.blocks = nn.ModuleList([
             nn.Sequential(
                 nn.LeakyReLU(0.2),
@@ -41,6 +47,8 @@ class residual_conv(nn.Module):
                 nn.Conv1d(channels, channels, kernel_size=1),
                 nn.BatchNorm1d(channels))
         for i in range(n_blocks)])
+        
+        # Shortcut 
         self.shortcuts = nn.ModuleList([
             nn.Sequential(nn.Conv1d(channels, channels, kernel_size=1),
                       nn.BatchNorm1d(channels))
@@ -50,6 +58,9 @@ class residual_conv(nn.Module):
         # input and output of shape [bs,channels,L]
         for block, shortcut in zip(self.blocks, self.shortcuts):
             x = shortcut(x) + block(x)
+            # x = x + block(x)
+
+            
         return x
 
 
@@ -67,6 +78,7 @@ class linear_block(nn.Module):
 # Models
 #############
 
+# Waveform encoder is a little similar to wavenet architecture with some changes
 class WaveformEncoder(nn.Module):
 
     def __init__(self,
@@ -82,8 +94,9 @@ class WaveformEncoder(nn.Module):
 
         encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
         encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
+        # print(encoder_convs)
         self.encoder_convs = nn.ModuleList(encoder_convs)
-         
+
         self.flatten_size = int(channels*num_samples/(stride**n_convs))
         self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
         self.mu = nn.Linear(z_dim,z_dim)
@@ -91,9 +104,12 @@ class WaveformEncoder(nn.Module):
 
     def encode(self, x):
 
+        # print("Audio Shape:")
+        # print(x.shape)
+
         conv_x = x
 
-        # Convolutional layers
+        # Convolutional layers - feature extraction
         # x --> h
         for conv in self.encoder_convs:
             conv_x = conv(conv_x)
@@ -118,6 +134,7 @@ class WaveformEncoder(nn.Module):
 
         return z, mu, logvar
 
+# Waveform decoder consists simply of dense layers.
 class WaveformDecoder(nn.Module):
 
     def __init__(self,
