@@ -35,11 +35,12 @@ MONO = True
 # Mode and directories
 WANDB = False
 TRAIN = False
+EXPORT_LATENTS = True
 SAVE_CHECKPOINT = False
 CHECKPOINT_REGULAIRTY = 5
 LOAD_CHECKPOINT = True
 VIEW_LATENT = False
-SAVE_RECONSTRUCTIONS = True
+SAVE_RECONSTRUCTIONS = False
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions/2048"
 CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/old/seaWaves_44kHz_2048Samples_15epochs.pt"
 # CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{64}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"

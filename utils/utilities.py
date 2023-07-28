@@ -60,6 +60,31 @@ def plot_latents(train_latents,train_labels, classes,export_dir):
     plt.savefig(os.path.join(export_dir,"latent_scatter_trainset.pdf"))
     plt.close("all")
 
+# Compute the latens
+# def compute_latents(w_model,dataloader):
+#     tmploader = DataLoader(dataloader.dataset, batch_size=5, shuffle=False, drop_last=False)
+#     dataset_latents = []
+#     dataset_labels = []
+#     for _,batch in enumerate(tmploader):
+#         with torch.no_grad():
+#             audio,labels = batch
+#             bs = audio.shape[0]
+#             mu = w_model.encode(audio.to(w_model.device))["mu"].cpu()
+#             # mu of shape [bs*n_grains,z_dim]
+#             mu = mu.reshape(bs,w_model.hparams.n_grains,w_model.hparams.z_dim)
+#             dataset_latents.append(mu)
+#             dataset_labels.append(labels)
+#     dataset_latents = torch.cat(dataset_latents,0)
+#     dataset_labels = torch.cat(dataset_labels,0)
+#     print("* exported dataset sizes",dataset_latents.shape,dataset_labels.shape)
+#     return dataset_latents,dataset_labels
+
+# # Export the latents
+# def export_latents(w_model,train_dataloader,test_dataloader):
+#     train_latents,train_labels = compute_latents(w_model,train_dataloader)
+#     test_latents,test_labels = compute_latents(w_model,test_dataloader)
+#     return train_latents,train_labels,test_latents,test_labels
+
 # Safe log for cases where x is very close to zero
 def safe_log(x, eps=1e-7):
     return torch.log(x + eps)
