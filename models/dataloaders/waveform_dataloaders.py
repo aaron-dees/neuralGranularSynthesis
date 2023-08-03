@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import torchaudio
 import os
+import soundfile as sf
+import librosa
 
 
 class WaveformDataset(torch.utils.data.Dataset):
@@ -183,3 +185,101 @@ class ESC50WaveformDataset(torch.utils.data.Dataset):
         # return self.annotations.iloc[index, 2]
         # return self.annotations.iloc[index, 0]
         return self.filenames[index]
+    
+def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2):
+    
+    hop_ratio = 0.25 # hard-coded along with n_grains formula
+
+    # tar_l is the target length for the synthesised audio
+
+    # Calculate the hop size based on the ratio
+    hop_size = int(hop_ratio*l_grain)
+    tar_l = int(tar_l*sr)
+
+    # Cut the target length to that which alligns with grains size
+    print("cropping from/to lengths",tar_l,tar_l//l_grain*l_grain)
+    tar_l = int(tar_l//l_grain*l_grain)
+
+    # n_grains are the overlapping grains
+    #  - This looks like it is based on the hop_ratio
+    #  - I understand the multiplication by 4, but not so much the removal of 3
+    #  TODO - understand this fromulae 
+    print("# non-overlapping grains",tar_l//l_grain)
+    n_grains = 4*(tar_l//l_grain)-3
+    print("# overlapping grains",n_grains)
+    
+    classes = sorted(classes)
+    train_datasets = []
+    test_datasets = []
+    
+    for i, class_label in enumerate(classes):
+        files = glob.glob(data_dir+"/*.wav")
+
+        print("\n*** class and # files",class_label,len(files))
+        audios = []
+        labels = []
+        n_rejected = 0
+        for file in files:
+            reject = 0
+            data, samplerate = sf.read(file)
+            if len(data.shape)>1:
+                # convert to mono
+                print("!! Convering audio to mono")
+                data = data.swapaxes(1, 0)
+                data = librosa.to_mono(data)
+            if samplerate!=sr:
+                print("!! Read samplerate differs from target sample rate, resampling.")
+                data = librosa.resample(data, samplerate, sr)
+
+            # Mean normalise the grains
+            data -= np.mean(data)
+            if silent_reject[0]!=0 and np.max(np.abs(data))<silent_reject[0]:
+                reject = 1 # peak amplitude is too low
+            trim_pos = librosa.effects.trim(data, top_db=60, frame_length=1024, hop_length=128)[1]
+            if silent_reject[1]!=0 and (trim_pos[1]-trim_pos[0])<silent_reject[1]*tar_l:
+                reject = 1 # non-silent length is too low
+
+            if reject==0:
+                if len(data)<tar_l:
+                    # if loaded audio is less than target length, pad with zeros
+                    data = np.concatenate((data,np.zeros((tar_l-len(data)))))
+                else:
+                    # trim loaded audio to target length
+                    data = data[:tar_l]
+                
+                # TODO Lookup what a high pass bi-quad filter is
+                data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
+                
+                # Normalise amplitude between 0 and 1
+                if amplitude_norm or np.max(np.abs(data))>=1:
+                    print()
+                    data /= np.max(np.abs(data))
+                    data *= 0.9
+                
+                audios.append(data)
+                labels.append(i)
+            else:
+                n_rejected += 1
+        
+        print("!! Number of audio samples rejected = ",n_rejected)
+
+        audios = torch.from_numpy(np.stack(audios,axis=0)).float()
+        labels = torch.from_numpy(np.stack(labels,axis=0)).long()
+        print("* dataset sizes",audios.shape,labels.shape)
+
+        n_samples = len(labels)
+        n_train = int(n_samples*0.85)
+        print("* split sizes",n_train, n_samples-n_train)
+        dataset = torch.utils.data.TensorDataset(audios,labels)
+        train_dataset,test_dataset = torch.utils.data.random_split(dataset, [n_train, n_samples-n_train])
+        train_datasets.append(train_dataset)
+        test_datasets.append(test_dataset)
+    
+    train_dataset = torch.utils.data.ConcatDataset(train_datasets)
+    test_dataset = torch.utils.data.ConcatDataset(test_datasets)
+    print("\n* final train/test sizes",len(train_dataset),len(test_dataset))
+    
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=num_workers)
+    
+    return train_dataloader,test_dataloader,tar_l,n_grains,l_grain,hop_size,classes
