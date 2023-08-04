@@ -9,11 +9,11 @@ import os
 
 ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/esc50_seaWaves.csv"
 AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio"
-SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/2048/"
+SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/44100/"
 SAMPLE_RATE = 44100
 NUM_SAMPLES = 44100*5
 DATALOADER_DEVICE = torch.device('cpu')
-SAMPLE_SIZE = 2048
+SAMPLE_SIZE = 44100
 
 if __name__ == "__main__":
 

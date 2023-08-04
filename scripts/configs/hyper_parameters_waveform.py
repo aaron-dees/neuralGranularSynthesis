@@ -9,7 +9,7 @@ DEVICE = torch.device("cpu")
 DATALOADER_DEVICE = torch.device('cpu')
 
 # Hyper Parameters
-BATCH_SIZE = 24
+BATCH_SIZE = 12
 TEST_SIZE = 10
 EPOCHS = 100
 LEARNING_RATE = 0.0005
@@ -22,25 +22,37 @@ KERNEL_SIZE = 3
 # ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/metadata/UrbanSound8K.csv"
 # AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/audio"
 ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/esc50_seaWaves.csv"
-AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/2048"
+AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/44100"
 
-FRAME_SIZE = 1024
-HOP_LENGTH = 512
+# FRAME_SIZE = 1024
+# HOP_LENGTH = 512
 NUM_MELS = 64
-NUM_SAMPLES = 2048
 SAMPLE_RATE = 44100
-DURATION = NUM_SAMPLES / SAMPLE_RATE # SECONDS
-MONO = True
+# DURATION = NUM_SAMPLES / SAMPLE_RATE # SECONDS
+# MONO = True
+NORMALIZE_OLA = True
+POSTPROC_KER_SIZE = 65
+POSTPROC_CHANNELS = 5
+
+# Grain Params
+# Ratio of hop size to grain length
+HOP_SIZE_RATIO = 0.25
+GRAIN_LENGTH = 2048
+# Target length in seconds
+TARGET_LENGTH = 1.0
+# High pass frequencey for bi-quad filtering
+HIGH_PASS_FREQ = 50
 
 # Mode and directories
 WANDB = False
 TRAIN = False
-EXPORT_LATENTS = True
+EXPORT_LATENTS = False
 SAVE_CHECKPOINT = False
 CHECKPOINT_REGULAIRTY = 5
-LOAD_CHECKPOINT = True
+LOAD_CHECKPOINT = False
 VIEW_LATENT = False
 SAVE_RECONSTRUCTIONS = False
-RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions/2048"
-CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/old/seaWaves_44kHz_2048Samples_15epochs.pt"
+COMPARE_ENERGY = False
+RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions/one_sec"
+CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_100epochs_12batch_1e-07beta_0envdist_latest.pt"
 # CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{64}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"

@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 
 from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformDecoder, WaveformVAE
-from models.dataloaders.waveform_dataloaders import ESC50WaveformDataset
+from models.dataloaders.waveform_dataloaders import ESC50WaveformDataset, make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
 from utils.utilities import plot_latents
@@ -35,39 +35,52 @@ if WANDB:
         "latent size": LATENT_SIZE,
         "env_dist": ENV_DIST,
         "beta": BETA,
-        "sample_size": NUM_SAMPLES
+        "grain_length": GRAIN_LENGTH
         }
     )
 
 if __name__ == "__main__":
 
-    model = WaveformVAE(kernel_size=9,
+
+    train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
+
+    # Test dataloader
+    test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
+    test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
+
+    model = WaveformVAE(n_grains = n_grains,
+                    hop_size=hop_size,
+                    normalize_ola=NORMALIZE_OLA,
+                    pp_chans=POSTPROC_CHANNELS,
+                    pp_ker=POSTPROC_KER_SIZE,
+                    kernel_size=9,
                     channels=128,
                     stride=4,
                     n_convs=3,
                     n_linears=3,
-                    num_samples=NUM_SAMPLES,
+                    num_samples=l_grain,
+                    l_grain=l_grain,
                     h_dim=512,
                     z_dim=128)
     
     model.to(DEVICE)
 
-    usd_waveforms = ESC50WaveformDataset(ANNOTATIONS_FILE, AUDIO_DIR, None, SAMPLE_RATE, NUM_SAMPLES, DATALOADER_DEVICE)
+    # # Split into train and validation
+    # # Program this better
+    # usd_waveforms = ESC50WaveformDataset(ANNOTATIONS_FILE, AUDIO_DIR, None, SAMPLE_RATE, NUM_SAMPLES, DATALOADER_DEVICE)
+    # split = [(5*len(usd_waveforms))//6, (1*len(usd_waveforms))//6+1]
+    # train_set, val_set = torch.utils.data.random_split(usd_waveforms, split)
+    # train_dataloader = torch.utils.data.DataLoader(train_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
+    # val_dataloader = torch.utils.data.DataLoader(val_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # Split into train and validation
-    # Program this better
-    split = [(5*len(usd_waveforms))//6, (1*len(usd_waveforms))//6+1]
-    train_set, val_set = torch.utils.data.random_split(usd_waveforms, split)
-    train_dataloader = torch.utils.data.DataLoader(train_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
-    val_dataloader = torch.utils.data.DataLoader(val_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
-
-    test_set = torch.utils.data.Subset(usd_waveforms, range(0,TEST_SIZE))
-    test_dataloader = torch.utils.data.DataLoader(val_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
+    # print("Sizes")
+    # print(len(train_dataloader))
+    # print(len(val_dataloader))
 
 
     if TRAIN:
 
-        print("Training Mode")
+        print("-------- Training Mode --------")
 
         ###########
         # Training
@@ -135,10 +148,10 @@ if __name__ == "__main__":
                 running_env_loss += env_loss
 
             # get avg training statistics 
-            train_loss = running_train_loss/len(train_dataloader) # does len(fsdd_dataloader) return the number of batches ?
-            kl_loss = running_kl_loss/len(train_dataloader)
-            spec_loss = running_spec_loss/len(train_dataloader)
-            env_loss = running_env_loss/len(train_dataloader)
+            train_loss = running_train_loss/len(train_dataloader.dataset) # does len(fsdd_dataloader) return the number of batches ?
+            kl_loss = running_kl_loss/len(train_dataloader.dataset)
+            spec_loss = running_spec_loss/len(train_dataloader.dataset)
+            env_loss = running_env_loss/len(train_dataloader.dataset)
 
             # Validate - turn gradient tracking off for validation. 
             model.eval()
@@ -174,10 +187,10 @@ if __name__ == "__main__":
                     running_env_val_loss += env_loss
                 
                 # Get avg stats
-                val_loss = running_val_loss/len(val_dataloader)
-                kl_val_loss = running_kl_val_loss/len(val_dataloader)
-                spec_val_loss = running_spec_val_loss/len(val_dataloader)
-                env_val_loss = running_env_val_loss/len(val_dataloader)
+                val_loss = running_val_loss/len(val_dataloader.dataset)
+                kl_val_loss = running_kl_val_loss/len(val_dataloader.dataset)
+                spec_val_loss = running_spec_val_loss/len(val_dataloader.dataset)
+                env_val_loss = running_env_val_loss/len(val_dataloader.dataset)
 
             # wandb logging
             if WANDB:
@@ -225,7 +238,7 @@ if __name__ == "__main__":
 
     else:
 
-        print("----- Inference Mode -----")
+        print("-------- Inference Mode --------")
 
         ###########
         # Inference
@@ -250,6 +263,8 @@ if __name__ == "__main__":
             
         x_hat, z, mu, logvar = model(waveforms)                     # get sample outputs
 
+        print("Z shape:", z.shape)
+
         
 
         spec_dist = spectral_distances(sr=SAMPLE_RATE)
@@ -260,17 +275,31 @@ if __name__ == "__main__":
         z = z.reshape(z.shape[0] ,1, z.shape[1])
         z = z.detach()
 
+
         # if VIEW_LATENT:
         #     plot_latents(z,labels, classes,"./")
-        
+        if COMPARE_ENERGY:
+            for i, signal in enumerate(x_hat):
+                # Check the energy differences
+                # print(labels[i][:-4])
+                print("Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data)
+                print("Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data)
+                print("Average Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data/x_hat[i].shape[0])
+                print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
+
+
         if SAVE_RECONSTRUCTIONS:
             for i, signal in enumerate(x_hat):
                 # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
                 spec_loss = spec_dist(x_hat[i], waveforms[i])
-                print("Saving ", labels[i][:-4])
+                # Check the energy differences
+                # print("Saving ", labels[i][:-4])
+                print("Saving ", i)
                 print("Loss: ", spec_loss)
-                torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
-                torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
+                # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
+                # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
+                torchaudio.save(f"./audio_tests/reconstructions/one_sec/recon_{i}_{spec_loss}.wav", signal.unsqueeze(0), SAMPLE_RATE)
+                torchaudio.save(f"./audio_tests/reconstructions/one_sec/{i}.wav", waveforms[i].unsqueeze(0), SAMPLE_RATE)
                 # print(f'{classes[labels[i]]} saved')
 
 

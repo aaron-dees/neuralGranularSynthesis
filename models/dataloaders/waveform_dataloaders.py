@@ -186,27 +186,25 @@ class ESC50WaveformDataset(torch.utils.data.Dataset):
         # return self.annotations.iloc[index, 0]
         return self.filenames[index]
     
-def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2):
+def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2):
+
+    print("-------- Creating Dataloaders --------")
     
-    hop_ratio = 0.25 # hard-coded along with n_grains formula
-
-    # tar_l is the target length for the synthesised audio
-
     # Calculate the hop size based on the ratio
     hop_size = int(hop_ratio*l_grain)
     tar_l = int(tar_l*sr)
 
     # Cut the target length to that which alligns with grains size
-    print("cropping from/to lengths",tar_l,tar_l//l_grain*l_grain)
+    print("--- Cropping sample lengths from/to:\t",tar_l,tar_l//l_grain*l_grain)
     tar_l = int(tar_l//l_grain*l_grain)
 
     # n_grains are the overlapping grains
     #  - This looks like it is based on the hop_ratio
     #  - I understand the multiplication by 4, but not so much the removal of 3
     #  TODO - understand this fromulae 
-    print("# non-overlapping grains",tar_l//l_grain)
+    print("--- Number of non-overlapping grains:\t",tar_l//l_grain)
     n_grains = 4*(tar_l//l_grain)-3
-    print("# overlapping grains",n_grains)
+    print("--- Number of overlapping grains:\t", n_grains)
     
     classes = sorted(classes)
     train_datasets = []
@@ -215,7 +213,6 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     for i, class_label in enumerate(classes):
         files = glob.glob(data_dir+"/*.wav")
 
-        print("\n*** class and # files",class_label,len(files))
         audios = []
         labels = []
         n_rejected = 0
@@ -224,11 +221,11 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
             data, samplerate = sf.read(file)
             if len(data.shape)>1:
                 # convert to mono
-                print("!! Convering audio to mono")
+                print("--- !!! Convering audio to mono")
                 data = data.swapaxes(1, 0)
                 data = librosa.to_mono(data)
             if samplerate!=sr:
-                print("!! Read samplerate differs from target sample rate, resampling.")
+                print("--- !!! Read samplerate differs from target sample rate, resampling.")
                 data = librosa.resample(data, samplerate, sr)
 
             # Mean normalise the grains
@@ -261,15 +258,14 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
             else:
                 n_rejected += 1
         
-        print("!! Number of audio samples rejected = ",n_rejected)
+        print("--- Number of audio samples rejected:\t", n_rejected)
 
         audios = torch.from_numpy(np.stack(audios,axis=0)).float()
         labels = torch.from_numpy(np.stack(labels,axis=0)).long()
-        print("* dataset sizes",audios.shape,labels.shape)
+        print("--- Dataset size:\t\t\t", audios.shape)
 
         n_samples = len(labels)
         n_train = int(n_samples*0.85)
-        print("* split sizes",n_train, n_samples-n_train)
         dataset = torch.utils.data.TensorDataset(audios,labels)
         train_dataset,test_dataset = torch.utils.data.random_split(dataset, [n_train, n_samples-n_train])
         train_datasets.append(train_dataset)
@@ -277,9 +273,11 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     
     train_dataset = torch.utils.data.ConcatDataset(train_datasets)
     test_dataset = torch.utils.data.ConcatDataset(test_datasets)
-    print("\n* final train/test sizes",len(train_dataset),len(test_dataset))
+    print("--- Dataset train/test sizes:\t\t",len(train_dataset),len(test_dataset))
     
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=num_workers)
+
+    print("-------- Done Creating Dataloaders --------")
     
-    return train_dataloader,test_dataloader,tar_l,n_grains,l_grain,hop_size,classes
+    return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes
