@@ -5,7 +5,7 @@ from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformD
 from models.dataloaders.waveform_dataloaders import ESC50WaveformDataset, make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
-from utils.utilities import plot_latents
+from utils.utilities import plot_latents, export_latents
 
 
 import torch
@@ -218,12 +218,8 @@ if __name__ == "__main__":
 
     elif EXPORT_LATENTS:
 
-        
-        # export the latents
-        print("Exporting Latents")
+        print("-------- Exporting Latents --------")
 
-        # w_model.to(device)
-        # w_model.eval()
         if LOAD_CHECKPOINT:
             checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
             model.load_state_dict(checkpoint['model_state_dict'])
@@ -231,9 +227,10 @@ if __name__ == "__main__":
         model.to(DEVICE)
         model.eval()
 
-        print("\n*** exporting audio reconstructions")
-
-        # train_latents,train_labels,test_latents,test_labels = export_latents(w_model,train_dataloader,test_dataloader)
+        train_latents,train_labels,test_latents,test_labels = export_latents(model,test_dataloader,test_dataloader)
+        # train_latents,train_labels,test_latents,test_labels = export_latents(model,train_dataloader,val_dataloader)
+        
+        print("-------- Done Exporting Latents --------")
 
 
     else:

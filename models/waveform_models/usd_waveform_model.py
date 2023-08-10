@@ -301,6 +301,9 @@ class WaveformVAE(nn.Module):
                     ):
         super(WaveformVAE, self).__init__()
 
+        self.z_dim = z_dim
+        self.n_grains = n_grains
+
         # Encoder and decoder components
         self.Encoder = WaveformEncoder(
                     hop_size=hop_size,
@@ -325,17 +328,36 @@ class WaveformVAE(nn.Module):
                     z_dim=z_dim)
 
         # Number of convolutional layers
+    def encode(self, x):
+
+         # x ---> z
+        z, mu, log_variance = self.Encoder(x);
+    
+        return {"z":z,"mu":mu,"logvar":log_variance} 
+
+    def decode(self, z, mu, sampling=True):
+
+        if sampling:
+            x_hat = self.Decoder(z)
+        else:
+            x_hat = self.Decoder(mu) 
+        
+        return x_hat
 
     def forward(self, x, sampling=True):
 
         # x ---> z
+        
         z, mu, log_variance = self.Encoder(x);
+        
 
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
+        print("Input shape: ", mu.shape)
         if sampling:
             x_hat = self.Decoder(z)
         else:
             x_hat = self.Decoder(mu)
+        print("Output shape: ", x_hat.shape)
 
         return x_hat, z, mu, log_variance
