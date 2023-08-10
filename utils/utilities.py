@@ -91,3 +91,20 @@ def export_latents(w_model,train_dataloader,test_dataloader):
 # Safe log for cases where x is very close to zero
 def safe_log(x, eps=1e-7):
     return torch.log(x + eps)
+
+def init_beta(max_steps,tar_beta,beta_steps=1000, warmup_perc=0.1):
+    # if continue_training:
+    #     beta = tar_beta
+    #     print("\n*** setting fixed beta of ",beta)
+    # else:
+    # warmup wihtout increasing beta
+    warmup_start = int(warmup_perc*max_steps)
+    # set beta steps to only increase of half of max steps
+    beta_step_size = int(max_steps/2/beta_steps)
+    beta_step_val = tar_beta/beta_steps
+    beta = 0
+    print("--- Initialising Beta, from 0 to ", tar_beta)
+        
+    return beta, beta_step_val, beta_step_size, warmup_start
+        
+    

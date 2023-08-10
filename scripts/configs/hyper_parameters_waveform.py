@@ -15,8 +15,14 @@ EPOCHS = 100
 LEARNING_RATE = 0.0005
 LATENT_SIZE = 128
 ENV_DIST = 0
-BETA = 0.0000001
 KERNEL_SIZE = 3
+# BETA_PARAMS
+# Number of warmup iterations before increasing beta
+BETA_WARMUP_START_PERC = 0.1
+TARGET_BETA = 0.01
+# number of warmup steps over half max_steps
+# BETA_STEPS = 500
+BETA_STEPS = 1
 
 # Audio Processing Parameters
 # ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/metadata/UrbanSound8K.csv"
@@ -45,9 +51,9 @@ HIGH_PASS_FREQ = 50
 
 # Mode and directories
 WANDB = False
-TRAIN = False
+TRAIN = True
 EXPORT_LATENTS = False
-SAVE_CHECKPOINT = False
+SAVE_CHECKPOINT = True
 CHECKPOINT_REGULAIRTY = 5
 LOAD_CHECKPOINT = False
 VIEW_LATENT = False

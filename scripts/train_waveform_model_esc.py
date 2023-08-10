@@ -5,7 +5,7 @@ from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformD
 from models.dataloaders.waveform_dataloaders import ESC50WaveformDataset, make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
-from utils.utilities import plot_latents, export_latents
+from utils.utilities import plot_latents, export_latents, init_beta
 
 
 import torch
@@ -34,7 +34,7 @@ if WANDB:
         "epochs": EPOCHS,
         "latent size": LATENT_SIZE,
         "env_dist": ENV_DIST,
-        "beta": BETA,
+        "tar_beta": TARGET_BETA,
         "grain_length": GRAIN_LENGTH
         }
     )
@@ -89,6 +89,10 @@ if __name__ == "__main__":
         optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
 
         start_epoch = 0
+        accum_iter = 0
+        # Calculate the max number of steps based on the number of epochs, number_of_epochs * batches_in_single_epoch
+        max_steps = EPOCHS * len(train_dataloader)
+        beta, beta_step_val, beta_step_size, warmup_start = init_beta(max_steps, TARGET_BETA, BETA_STEPS, BETA_WARMUP_START_PERC)
 
         if LOAD_CHECKPOINT:
             checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
@@ -96,6 +100,11 @@ if __name__ == "__main__":
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch']
             train_loss = checkpoint['loss']
+            accum_iter = checkpoint['accum_iter']
+            beta = checkpoint['beta']
+            beta_step_val = checkpoint['beta_step_val']
+            beta_step_size = checkpoint['beta_step_size']
+            warmup_start = checkpoint['warmup_start']
 
 
             print("----- Checkpoint File Loaded -----")
@@ -103,7 +112,7 @@ if __name__ == "__main__":
             print(f'Loss: {train_loss}')
 
         # Model in training mode
-        
+
         
         for epoch in range(start_epoch, EPOCHS):
 
@@ -119,6 +128,17 @@ if __name__ == "__main__":
             running_env_loss = 0.0
 
             for data in train_dataloader:
+
+                # set the beta for weighting the KL Divergence
+                if (accum_iter+1)%beta_step_size==0:
+                    if accum_iter<warmup_start:
+                        beta = 0
+                    elif beta<TARGET_BETA:
+                        beta += beta_step_val
+                        beta = np.min([beta,TARGET_BETA])
+                    else:
+                        beta = TARGET_BETA
+
                 waveform, label = data 
                 waveform = Variable(waveform).to(DEVICE)                       # we are just intrested in just images
                 # no need to flatten images
@@ -135,7 +155,7 @@ if __name__ == "__main__":
                 else:
                     env_loss = 0
 
-                loss = (kld*BETA) + spec_loss + (env_loss*ENV_DIST)
+                loss = (kld*beta) + spec_loss + (env_loss*ENV_DIST)
 
                 # Compute gradients and update weights
                 loss.backward()                         # backward pass
@@ -147,6 +167,8 @@ if __name__ == "__main__":
                 running_spec_loss += spec_loss.item()
                 running_env_loss += env_loss
 
+                accum_iter+=1
+                
             # get avg training statistics 
             train_loss = running_train_loss/len(train_dataloader.dataset) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = running_kl_loss/len(train_dataloader.dataset)
@@ -179,7 +201,7 @@ if __name__ == "__main__":
                     else:
                         env_loss = 0
 
-                    loss = (kld*BETA) + spec_loss + (env_loss*ENV_DIST)
+                    loss = (kld*beta) + spec_loss + (env_loss*ENV_DIST)
 
                     running_val_loss += loss.item()
                     running_kl_val_loss += kld.item()
@@ -197,13 +219,20 @@ if __name__ == "__main__":
                 wandb.log({"kl_loss": kl_loss, "spec_loss": spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
 
             print('Epoch: {}'.format(epoch+1),
-            '\tTraining Loss: {:.4f}'.format(train_loss))
-            print(f'Validations Loss: {val_loss}')
+            '\tStep: {}'.format(accum_iter+1),
+            '\t Beta: {:.2f}'.format{beta},
+            '\tTraining Loss: {:.4f}'.format(train_loss),
+            '\tValidations Loss: {:.4f}'.format(val_loss))
 
             if SAVE_CHECKPOINT:
                 if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
                     torch.save({
                         'epoch': epoch+1,
+                        'accum_iter': accum_iter,
+                        'beta': beta,
+                        'beta_step_val': beta_step_val,
+                        'beta_step_size': beta_step_size,
+                        'warmup_start': warmup_start,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_loss,

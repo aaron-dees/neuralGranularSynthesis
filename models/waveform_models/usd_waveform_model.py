@@ -353,11 +353,9 @@ class WaveformVAE(nn.Module):
 
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
-        print("Input shape: ", mu.shape)
         if sampling:
             x_hat = self.Decoder(z)
         else:
             x_hat = self.Decoder(mu)
-        print("Output shape: ", x_hat.shape)
 
         return x_hat, z, mu, log_variance
