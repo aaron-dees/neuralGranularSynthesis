@@ -113,6 +113,9 @@ if __name__ == "__main__":
 
         # Model in training mode
 
+        # Set spectral distances
+        spec_dist = spectral_distances(sr=SAMPLE_RATE)
+
         
         for epoch in range(start_epoch, EPOCHS):
 
@@ -130,6 +133,7 @@ if __name__ == "__main__":
             for data in train_dataloader:
 
                 # set the beta for weighting the KL Divergence
+                # note beta will only start on multiple of step size
                 if (accum_iter+1)%beta_step_size==0:
                     if accum_iter<warmup_start:
                         beta = 0
@@ -146,25 +150,27 @@ if __name__ == "__main__":
                 x_hat, z, mu, log_variance = model(waveform)                 # forward pass: compute predicted outputs 
 
                 # Compute loss
-                kld = compute_kld(mu, log_variance)
-                spec_dist = spectral_distances(sr=SAMPLE_RATE)
                 spec_loss = spec_dist(x_hat, waveform)
+                if beta > 0:
+                    kld_loss = compute_kld(mu, log_variance) * beta
+                else:
+                    kld_loss = 0.0
                 # Notes this won't work when using grains, need to look into this
                 if ENV_DIST > 0:
-                    env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True)
+                    env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
                 else:
-                    env_loss = 0
+                    env_loss = 0.0
 
-                loss = (kld*beta) + spec_loss + (env_loss*ENV_DIST)
+                loss = kld_loss + spec_loss + env_loss
 
                 # Compute gradients and update weights
                 loss.backward()                         # backward pass
                 optimizer.step()                        # perform optimization step
 
                 # Accumulate loss for reporting
-                running_train_loss += loss.item() 
-                running_kl_loss += kld.item()
-                running_spec_loss += spec_loss.item()
+                running_train_loss += loss
+                running_kl_loss += kld_loss
+                running_spec_loss += spec_loss
                 running_env_loss += env_loss
 
                 accum_iter+=1
@@ -174,6 +180,8 @@ if __name__ == "__main__":
             kl_loss = running_kl_loss/len(train_dataloader.dataset)
             spec_loss = running_spec_loss/len(train_dataloader.dataset)
             env_loss = running_env_loss/len(train_dataloader.dataset)
+            print("Training Loss: ", train_loss)
+            print("KL Loss: ", kl_loss)
 
             # Validate - turn gradient tracking off for validation. 
             model.eval()
@@ -191,21 +199,24 @@ if __name__ == "__main__":
                     waveform, label = data 
                     waveform = waveform.to(DEVICE)
                     x_hat, z, mu, log_variance = model(waveform)
+
                     # Compute loss
-                    kld = compute_kld(mu, log_variance)
-                    spec_dist = spectral_distances(sr=SAMPLE_RATE)
                     spec_loss = spec_dist(x_hat, waveform)
+                    if beta > 0:
+                        kld_loss = compute_kld(mu, log_variance) * beta
+                    else:
+                        kld_loss = 0.0
                     # Notes this won't work when using grains, need to look into this
                     if ENV_DIST > 0:
-                        env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True)
+                        env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
                     else:
-                        env_loss = 0
+                        env_loss = 0.0
 
-                    loss = (kld*beta) + spec_loss + (env_loss*ENV_DIST)
+                    loss = kld_loss + spec_loss + env_loss
 
-                    running_val_loss += loss.item()
-                    running_kl_val_loss += kld.item()
-                    running_spec_val_loss += spec_loss.item()
+                    running_val_loss += loss
+                    running_kl_val_loss += kld_loss
+                    running_spec_val_loss += spec_loss
                     running_env_val_loss += env_loss
                 
                 # Get avg stats
@@ -220,7 +231,7 @@ if __name__ == "__main__":
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
-            '\t Beta: {:.2f}'.format{beta},
+            '\t Beta: {:.2f}'.format(beta),
             '\tTraining Loss: {:.4f}'.format(train_loss),
             '\tValidations Loss: {:.4f}'.format(val_loss))
 
