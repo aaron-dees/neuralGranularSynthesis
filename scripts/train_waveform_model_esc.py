@@ -176,12 +176,10 @@ if __name__ == "__main__":
                 accum_iter+=1
                 
             # get avg training statistics 
-            train_loss = running_train_loss/len(train_dataloader.dataset) # does len(fsdd_dataloader) return the number of batches ?
-            kl_loss = running_kl_loss/len(train_dataloader.dataset)
-            spec_loss = running_spec_loss/len(train_dataloader.dataset)
-            env_loss = running_env_loss/len(train_dataloader.dataset)
-            print("Training Loss: ", train_loss)
-            print("KL Loss: ", kl_loss)
+            train_loss = running_train_loss/len(train_dataloader) # does len(fsdd_dataloader) return the number of batches ?
+            kl_loss = running_kl_loss/len(train_dataloader)
+            spec_loss = running_spec_loss/len(train_dataloader)
+            env_loss = running_env_loss/len(train_dataloader)
 
             # Validate - turn gradient tracking off for validation. 
             model.eval()
@@ -220,10 +218,10 @@ if __name__ == "__main__":
                     running_env_val_loss += env_loss
                 
                 # Get avg stats
-                val_loss = running_val_loss/len(val_dataloader.dataset)
-                kl_val_loss = running_kl_val_loss/len(val_dataloader.dataset)
-                spec_val_loss = running_spec_val_loss/len(val_dataloader.dataset)
-                env_val_loss = running_env_val_loss/len(val_dataloader.dataset)
+                val_loss = running_val_loss/len(val_dataloader)
+                kl_val_loss = running_kl_val_loss/len(val_dataloader)
+                spec_val_loss = running_spec_val_loss/len(val_dataloader)
+                env_val_loss = running_env_val_loss/len(val_dataloader)
 
             # wandb logging
             if WANDB:
@@ -267,8 +265,8 @@ if __name__ == "__main__":
         model.to(DEVICE)
         model.eval()
 
-        train_latents,train_labels,test_latents,test_labels = export_latents(model,test_dataloader,test_dataloader)
-        # train_latents,train_labels,test_latents,test_labels = export_latents(model,train_dataloader,val_dataloader)
+        train_latents,train_labels,val_latents,val_labels = export_latents(model,test_dataloader,test_dataloader)
+        # train_latents,train_labels,val_latents,val_labels = export_latents(model,train_dataloader,val_dataloader)
         
         print("-------- Done Exporting Latents --------")
 

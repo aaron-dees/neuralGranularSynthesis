@@ -11,7 +11,7 @@ DATALOADER_DEVICE = torch.device('cpu')
 # Hyper Parameters
 BATCH_SIZE = 12
 TEST_SIZE = 10
-EPOCHS = 2
+EPOCHS = 10
 LEARNING_RATE = 0.0005
 LATENT_SIZE = 128
 ENV_DIST = 0
@@ -60,5 +60,5 @@ VIEW_LATENT = False
 SAVE_RECONSTRUCTIONS = False
 COMPARE_ENERGY = False
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions/one_sec"
-CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_100epochs_12batch_1e-07beta_0envdist_latest.pt"
+CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/old/seaWaes_2048Grains_1SecSamples.pt"
 # CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{64}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"
