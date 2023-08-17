@@ -18,6 +18,8 @@ import wandb
 import numpy as np
 from datetime import datetime
 
+print("--- Device: ", DEVICE)
+
 
 # start a new wandb run to track this script
 if WANDB:

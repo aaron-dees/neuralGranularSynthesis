@@ -1,9 +1,11 @@
 import torch
 
-# if torch.backends.mps.is_available():
-#     DEVICE = torch.device("mps:0")
-# else:
-DEVICE = torch.device("cpu") 
+if torch.backends.mps.is_available():
+    DEVICE = torch.device("mps:0")
+elif torch.cuda.is_available():
+    DEVICE = torch.device("gpu:0")
+else:
+    DEVICE = torch.device("cpu") 
 
 # having issues with padding on Apple GPU
 DATALOADER_DEVICE = torch.device('cpu')
