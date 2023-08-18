@@ -24,7 +24,7 @@ print("--- Device: ", DEVICE)
 if WANDB:
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_waveformVAE",
+        project="SeaWaves_waveformVAE_GPU",
         name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -119,6 +119,8 @@ if __name__ == "__main__":
 
         
         for epoch in range(start_epoch, EPOCHS):
+
+            start = time.time()
 
             # Turn gradient trackin on for training loop
             model.train()
@@ -224,6 +226,8 @@ if __name__ == "__main__":
                 spec_val_loss = running_spec_val_loss/len(val_dataloader)
                 env_val_loss = running_env_val_loss/len(val_dataloader)
 
+            end = time.time()
+
             # wandb logging
             if WANDB:
                 wandb.log({"kl_loss": kl_loss, "spec_loss": spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
@@ -232,7 +236,8 @@ if __name__ == "__main__":
             '\tStep: {}'.format(accum_iter+1),
             '\t Beta: {:.2f}'.format(beta),
             '\tTraining Loss: {:.4f}'.format(train_loss),
-            '\tValidations Loss: {:.4f}'.format(val_loss))
+            '\tValidations Loss: {:.4f}'.format(val_loss),
+            '\tTime: {:.2f}s'.format(end-start))
 
             if SAVE_CHECKPOINT:
                 if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
