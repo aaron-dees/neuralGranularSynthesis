@@ -3,11 +3,11 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=1000
 #SBATCH --cpus-per-task=1
-#SBATCH --partition=MEDIUM-G1
-
-. /home/ICTDOMAIN/d22127229/torchenv/bin/activate
+#SBATCH --partition=LARGE-G2
 
 nvidia-smi
+
+. /home/ICTDOMAIN/d22127229/torchenv/bin/activate
 
 python --version
 
