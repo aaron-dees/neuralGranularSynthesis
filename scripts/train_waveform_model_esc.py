@@ -20,7 +20,6 @@ from datetime import datetime
 
 print("--- Device: ", DEVICE)
 
-
 # start a new wandb run to track this script
 if WANDB:
     wandb.init(
@@ -116,7 +115,7 @@ if __name__ == "__main__":
         # Model in training mode
 
         # Set spectral distances
-        spec_dist = spectral_distances(sr=SAMPLE_RATE)
+        spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 
         
         for epoch in range(start_epoch, EPOCHS):
