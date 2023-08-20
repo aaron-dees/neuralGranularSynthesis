@@ -7,7 +7,8 @@ from models.dataloaders.waveform_dataloaders import  make_audio_dataloaders
 from models.dataloaders.latent_dataloaders import make_latent_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_temporal import *
-from utils.utilities import plot_latents, export_latents, init_beta
+from scripts.configs.hyper_parameters_waveform import LATENT_SIZE, AUDIO_DIR, SAMPLE_RATE, NORMALIZE_OLA, POSTPROC_KER_SIZE, POSTPROC_CHANNELS, HOP_SIZE_RATIO, GRAIN_LENGTH, TARGET_LENGTH, HIGH_PASS_FREQ
+from utils.utilities import plot_latents, export_latents, init_beta, export_embedding_to_audio_reconstructions, export_random_samples
 
 
 import torch
@@ -19,7 +20,6 @@ import time
 import wandb
 import numpy as np
 from datetime import datetime
-
 
 # start a new wandb run to track this script
 if WANDB:
@@ -69,8 +69,8 @@ if __name__ == "__main__":
     
     w_model.to(DEVICE)
 
-    if LOAD_CHECKPOINT:
-        checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
+    if LOAD_WAVEFORM_CHECKPOINT:
+        checkpoint = torch.load(WAVEFORM_CHECKPOINT_LOAD_PATH)
         w_model.load_state_dict(checkpoint['model_state_dict'])
 
     w_model.to(DEVICE)
@@ -78,20 +78,16 @@ if __name__ == "__main__":
 
     print("--- Exporting latents")
 
-    train_latents,train_labels,val_latents,val_labels = export_latents(w_model,train_dataloader,val_dataloader)
-    # train_latents,train_labels,test_latents,test_labels = export_latents(model,test_dataloader,test_dataloader)
-
-    print(train_latents.shape)
+    train_latents,train_labels,val_latents,val_labels = export_latents(w_model,train_dataloader,val_dataloader, DEVICE)
+    # train_latents,train_labels,val_latents,val_labels = export_latents(w_model,test_dataloader,test_dataloader, DEVICE)
+    test_latents,test_labels,_,_ = export_latents(w_model,test_dataloader,test_dataloader, DEVICE)
 
 
     print("--- Creating dataset")
 
     train_latentloader,val_latentloader = make_latent_dataloaders(train_latents,train_labels,val_latents,val_labels, batch_size=BATCH_SIZE ,num_workers=0)
     # train_latentloader,val_latentloader = make_latent_dataloaders(train_latents,train_labels,val_latents,val_labels, batch_size=10 ,num_workers=0)
-
-    print("Train")
-    print(len(train_latentloader))
-    print(len(val_latentloader))
+    test_latentloader, _ = make_latent_dataloaders(test_latents,test_labels,test_latents,test_labels, batch_size=TEST_SIZE ,num_workers=0)
 
     l_model = LatentVAE(
         e_dim=TEMPORAL_LATENT_SIZE,
@@ -128,7 +124,7 @@ if __name__ == "__main__":
         mse_loss = nn.MSELoss()
 
         if LOAD_LATENT_CHECKPOINT:
-            checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
+            checkpoint = torch.load(LATENT_CHECKPOINT_LOAD_PATH)
             l_model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch']
@@ -177,7 +173,9 @@ if __name__ == "__main__":
                 latent = Variable(latent).to(DEVICE)                       # we are just intrested in just images
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
-                z_hat, e, mu, log_variance = l_model(latent)                 # forward pass: compute predicted outputs 
+
+                # Note that conds is just the label (numeric)
+                z_hat, e, mu, log_variance = l_model(latent, conds=label)                 # forward pass: compute predicted outputs 
                 # print("--- ", z_hat.shape)
 
                 # Compute loss
@@ -226,7 +224,7 @@ if __name__ == "__main__":
                 for data in val_latentloader:
                     latent, label = data 
                     latent = latent.to(DEVICE)
-                    z_hat, e, mu, log_variance = l_model(latent)
+                    z_hat, e, mu, log_variance = l_model(latent, conds=label)
 
                     # Compute loss
                     rec_loss = mse_loss(z_hat, latent)
@@ -269,22 +267,33 @@ if __name__ == "__main__":
                         'model_state_dict': l_model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_loss,
-                        }, f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_{epoch+1}epoch_{datetime.now()}.pt")
+                        }, f"{SAVE_MODEL_DIR}/latent_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{beta}beta_{ENV_DIST}envdist_{epoch+1}epoch_{datetime.now()}.pt")
                     # Save as latest also
                     torch.save({
                         'epoch': epoch+1,
                         'model_state_dict': l_model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_loss,
-                        }, f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt")
+                        }, f"{SAVE_MODEL_DIR}/latent_vae_latest.pt")
 
-    # elif EXPORT_LATENTS:
+    if EXPORT_AUDIO_RECON:
 
-    #     print("-------- Exporting Latents --------")
+        print("-------- Exporting Audio Reconstructions --------")
 
-    #     if LOAD_CHECKPOINT:
-    #         checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
-    #         model.load_state_dict(checkpoint['model_state_dict'])
+        if LOAD_LATENT_CHECKPOINT:
+            checkpoint = torch.load(LATENT_CHECKPOINT_LOAD_PATH)
+            l_model.load_state_dict(checkpoint['model_state_dict'])
+
+        for batch in test_latentloader:
+            export_embedding_to_audio_reconstructions(l_model, w_model, batch, EXPORT_AUDIO_DIR, SAMPLE_RATE, DEVICE,trainset=True)
+        
+        print("-------- Exporting Audio Reconstructions DONE --------")
+
+        print("-------- Exporting Random Latent Audio Reconstructions --------")
+
+        export_random_samples(l_model,w_model, EXPORT_RANDOM_LATENT_AUDIO_DIR, LATENT_SIZE, TEMPORAL_LATENT_SIZE,SAMPLE_RATE, ["SeaWaves"], DEVICE)
+
+        print("-------- Exporting Random Latent Audio Reconstructions Done --------")
 
     #     model.to(DEVICE)
     #     model.eval()

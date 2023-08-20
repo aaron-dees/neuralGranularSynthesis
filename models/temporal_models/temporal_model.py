@@ -146,14 +146,15 @@ class LatentDecoder(nn.Module):
         if self.n_conds>0:
             conds = conds.unsqueeze(1).repeat(1,self.n_grains,1).contiguous()
             h = torch.cat((h,conds),2)
-        
+
+        # In theory here I could create the final output of the dense layer be a larger seq? 
         z = self.decoder_z(h)
 
         return z
 
-    def forward(self, latents):
+    def forward(self, latents, conds=None):
 
-        z = self.decode(latents)
+        z = self.decode(latents, conds)
 
         return z
     
@@ -210,7 +211,7 @@ class LatentVAE(nn.Module):
         
         return z_hat
 
-    def forward(self, z, sampling=True):
+    def forward(self, z, conds=None, sampling=True):
 
         # z ---> e
         
@@ -219,9 +220,9 @@ class LatentVAE(nn.Module):
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
-            z_hat = self.Decoder(e)
+            z_hat = self.Decoder(e, conds)
         else:
-            z_hat = self.Decoder(mu)
+            z_hat = self.Decoder(mu, conds)
 
         return z_hat, e, mu, log_variance
 

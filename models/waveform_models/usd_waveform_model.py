@@ -335,13 +335,10 @@ class WaveformVAE(nn.Module):
     
         return {"z":z,"mu":mu,"logvar":log_variance} 
 
-    def decode(self, z, mu, sampling=True):
-
-        if sampling:
-            x_hat = self.Decoder(z)
-        else:
-            x_hat = self.Decoder(mu) 
-        
+    def decode(self, z):
+            
+        x_hat = self.Decoder(z)
+            
         return x_hat
 
     def forward(self, x, sampling=True):

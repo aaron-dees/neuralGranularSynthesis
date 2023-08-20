@@ -1,8 +1,8 @@
 import torch
 
-if torch.backends.mps.is_available():
-    DEVICE = torch.device("mps:0")
-elif torch.cuda.is_available():
+#if torch.backends.mps.is_available():
+#    DEVICE = torch.device("mps:0")
+if torch.cuda.is_available():
     DEVICE = torch.device("cuda:0")
 else:
     DEVICE = torch.device("cpu") 
@@ -64,5 +64,5 @@ COMPARE_ENERGY = False
 SAVE_DIR = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints"
 # SAVE_DIR = f"/home/ICTDOMAIN/d22127229/code/github/neuralGranularSynthesis/models/saved_models"
 RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions/one_sec"
-CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/old/seaWaes_2048Grains_1SecSamples.pt"
+CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/waveform/seaWaes_2048Grains_1SecSamples.pt"
 # CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{64}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"

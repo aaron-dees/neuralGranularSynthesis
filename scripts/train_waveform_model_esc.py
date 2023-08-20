@@ -251,14 +251,14 @@ if __name__ == "__main__":
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_loss,
-                       }, f"{SAVE_DIR}/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{BETA}beta_{ENV_DIST}envdist_{epoch+1}epoch_{datetime.now()}.pt")
+                       }, f"{SAVE_DIR}/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{beta}beta_{ENV_DIST}envdist_{epoch+1}epoch_{datetime.now()}.pt")
                     # Save as latest also
                     torch.save({
                         'epoch': epoch+1,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_loss,
-                        }, f"{SAVE_DIR}/waveform_vae_{DEVICE}_{EPOCHS}epochs_{BATCH_SIZE}batch_{TARGET_BETA}beta_{ENV_DIST}envdist_latest.pt")
+                        }, f"{SAVE_DIR}/waveform_vae_latest.pt")
 
     elif EXPORT_LATENTS:
 
@@ -271,8 +271,8 @@ if __name__ == "__main__":
         model.to(DEVICE)
         model.eval()
 
-        train_latents,train_labels,val_latents,val_labels = export_latents(model,test_dataloader,test_dataloader)
-        # train_latents,train_labels,val_latents,val_labels = export_latents(model,train_dataloader,val_dataloader)
+        train_latents,train_labels,val_latents,val_labels = export_latents(model,test_dataloader,test_dataloader, DEVICE)
+        # train_latents,train_labels,val_latents,val_labels = export_latents(model,train_dataloader,val_dataloader, DEVICE)
         
         print("-------- Done Exporting Latents --------")
 

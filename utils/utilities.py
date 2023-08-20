@@ -2,9 +2,9 @@ import torch
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
+import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
-from scripts.configs.hyper_parameters_waveform import DEVICE
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -62,7 +62,7 @@ def plot_latents(train_latents,train_labels, classes,export_dir):
     plt.close("all")
 
 # Compute the latens
-def compute_latents(w_model,dataloader):
+def compute_latents(w_model,dataloader,device):
     tmploader = torch.utils.data.DataLoader(dataloader.dataset, batch_size=5, shuffle=False, drop_last=False)
     dataset_latents = []
     dataset_labels = []
@@ -70,7 +70,7 @@ def compute_latents(w_model,dataloader):
         with torch.no_grad():
             audio,labels = batch
             bs = audio.shape[0]
-            mu = w_model.encode(audio.to(DEVICE))["mu"].cpu()
+            mu = w_model.encode(audio.to(device))["mu"].cpu()
             # mu of shape [bs*n_grains,z_dim]
             mu = mu.reshape(bs,w_model.n_grains,w_model.z_dim)
             dataset_latents.append(mu)
@@ -83,9 +83,9 @@ def compute_latents(w_model,dataloader):
     return dataset_latents,dataset_labels
 
 # Export the latents
-def export_latents(w_model,train_dataloader,test_dataloader):
-    train_latents,train_labels = compute_latents(w_model,train_dataloader)
-    test_latents,test_labels = compute_latents(w_model,test_dataloader)
+def export_latents(w_model,train_dataloader,test_dataloader, device):
+    train_latents,train_labels = compute_latents(w_model,train_dataloader, device)
+    test_latents,test_labels = compute_latents(w_model,test_dataloader, device)
     return train_latents,train_labels,test_latents,test_labels
 
 # Safe log for cases where x is very close to zero
@@ -106,5 +106,37 @@ def init_beta(max_steps,tar_beta,beta_steps=1000, warmup_perc=0.1):
     print("--- Initialising Beta, from 0 to ", tar_beta)
         
     return beta, beta_step_val, beta_step_size, warmup_start
+
+def export_embedding_to_audio_reconstructions(l_model,w_model,batch, export_dir, sr, device,trainset=False):
+    if os.path.exists(export_dir) is False:
+        os.makedirs(export_dir)
+
+    with torch.no_grad():
+        z,conds = batch
+        z,conds = z.to(device),conds.to(device)
+        # forward through latent embedding
+        z_hat, e, mu, log_variance = l_model(z,conds, sampling=False)
+        # reshape as minibatch of individual grains of shape [bs*n_grains,z_dim]
+        z,z_hat = z.reshape(-1,w_model.z_dim),z_hat.reshape(-1,w_model.z_dim)
+        # export reconstruction by pretrained waveform model and by embedding + waveform models
+        audio,audio_hat = w_model.decode(z),w_model.decode(z_hat)
+        audio_export = torch.cat((audio,audio_hat),-1).cpu().numpy()
+        for i in range(audio_hat.shape[0]):
+            if trainset:
+                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_"+str(i)+".wav"),audio_export[i,:], sr)
+            else:
+                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_"+str(i)+".wav"),audio_export[i,:], sr)
+
+def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes, device, n_samples=10,temperature=1.):
+    if os.path.exists(export_dir) is False:
+        os.makedirs(export_dir)
+    with torch.no_grad():
+        for i,cl in enumerate(classes):
+            rand_e = torch.randn((n_samples, e_dim)).to(device)
+            rand_e = rand_e*temperature
+            conds = torch.zeros(n_samples).to(device).long()+i
+            z_hat = l_model.decode(rand_e,conds).reshape(-1, z_dim)
+            audio_hat = w_model.decode(z_hat).view(-1).cpu().numpy()
+            sf.write(os.path.join(export_dir,"random_samples_"+cl+".wav"),audio_hat, sr)
         
     
