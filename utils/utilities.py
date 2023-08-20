@@ -104,6 +104,11 @@ def init_beta(max_steps,tar_beta,beta_steps=1000, warmup_perc=0.1):
     beta_step_val = tar_beta/beta_steps
     beta = 0
     print("--- Initialising Beta, from 0 to ", tar_beta)
+    print("")
+    print('--- Beta: {}'.format(beta),
+            '\tWarmup Start: {}'.format(warmup_start),
+            '\tStep Size: {}'.format(beta_step_size),
+            '\tStep Val: {:.5f}'.format(beta_step_val))
         
     return beta, beta_step_val, beta_step_size, warmup_start
 

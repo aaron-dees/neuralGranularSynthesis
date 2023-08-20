@@ -19,9 +19,11 @@ import numpy as np
 from datetime import datetime
 
 print("--- Device: ", DEVICE)
+print("--- Venv: ", sys.prefix)
 
 # start a new wandb run to track this script
 if WANDB:
+    wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
         project="SeaWaves_waveformVAE_GPU",
@@ -234,7 +236,7 @@ if __name__ == "__main__":
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
-            '\t Beta: {:.2f}'.format(beta),
+            '\t Beta: {:.5f}'.format(beta),
             '\tTraining Loss: {:.4f}'.format(train_loss),
             '\tValidations Loss: {:.4f}'.format(val_loss),
             '\tTime: {:.2f}s'.format(end-start))
