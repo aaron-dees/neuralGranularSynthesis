@@ -26,7 +26,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_latentVAE",
+        project="SeaWaves_latentVAE_GPU",
         name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -290,11 +290,11 @@ if __name__ == "__main__":
         
         print("-------- Exporting Audio Reconstructions DONE --------")
 
-        print("-------- Exporting Random Latent Audio Reconstructions --------")
+        #print("-------- Exporting Random Latent Audio Reconstructions --------")
 
-        export_random_samples(l_model,w_model, EXPORT_RANDOM_LATENT_AUDIO_DIR, LATENT_SIZE, TEMPORAL_LATENT_SIZE,SAMPLE_RATE, ["SeaWaves"], DEVICE)
+        #export_random_samples(l_model,w_model, EXPORT_RANDOM_LATENT_AUDIO_DIR, LATENT_SIZE, TEMPORAL_LATENT_SIZE,SAMPLE_RATE, ["SeaWaves"], DEVICE)
 
-        print("-------- Exporting Random Latent Audio Reconstructions Done --------")
+        #print("-------- Exporting Random Latent Audio Reconstructions Done --------")
 
     #     model.to(DEVICE)
     #     model.eval()

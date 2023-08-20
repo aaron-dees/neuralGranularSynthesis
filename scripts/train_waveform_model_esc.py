@@ -308,9 +308,8 @@ if __name__ == "__main__":
 
         print("Z shape:", z.shape)
 
-        
 
-        spec_dist = spectral_distances(sr=SAMPLE_RATE)
+        spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 
         # spec_loss = spec_dist(x_hat, waveforms)
         # print("Average: ", spec_loss)
@@ -318,9 +317,9 @@ if __name__ == "__main__":
         z = z.reshape(z.shape[0] ,1, z.shape[1])
         z = z.detach()
 
-
         # if VIEW_LATENT:
         #     plot_latents(z,labels, classes,"./")
+
         if COMPARE_ENERGY:
             for i, signal in enumerate(x_hat):
                 # Check the energy differences
@@ -329,7 +328,6 @@ if __name__ == "__main__":
                 print("Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data)
                 print("Average Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data/x_hat[i].shape[0])
                 print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
-
 
         if SAVE_RECONSTRUCTIONS:
             for i, signal in enumerate(x_hat):
@@ -341,8 +339,8 @@ if __name__ == "__main__":
                 print("Loss: ", spec_loss)
                 # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
                 # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-                torchaudio.save(f"./audio_tests/reconstructions/one_sec/recon_{i}_{spec_loss}.wav", signal.unsqueeze(0), SAMPLE_RATE)
-                torchaudio.save(f"./audio_tests/reconstructions/one_sec/{i}.wav", waveforms[i].unsqueeze(0), SAMPLE_RATE)
+                torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
                 # print(f'{classes[labels[i]]} saved')
 
 
