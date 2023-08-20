@@ -248,7 +248,7 @@ if __name__ == "__main__":
 
             # wandb logging
             if WANDB:
-                wandb.log({"kl_loss": kl_loss, "spec_loss": rec_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "rec_val_loss": rec_val_loss, "val_loss": val_loss})
+                wandb.log({"kl_loss": kl_loss, "recon_loss": rec_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "recon_val_loss": rec_val_loss, "val_loss": val_loss})
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
