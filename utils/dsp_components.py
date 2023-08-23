@@ -2,6 +2,14 @@ import torch
 import math
 import matplotlib.pyplot as plt
 
+##################
+#   Modified Sigmoid
+#
+#   https://arxiv.org/pdf/2001.04643.pdf - Sec B.5
+#   We force the amplitudes, harmonic distributions, and filtered noise magnitudes to be non-negative
+#   by applying a sigmoid nonlinearity to network outputs. We find a slight improvement in traning
+#    stability by modifying the sigmoid to have a scaled output, larger slope by exponentiating, and
+#   threshold at a minimum value, as seen in below retunr statement.
 def mod_sigmoid(x):
     return 2 * torch.sigmoid(x)**(math.log(10)) + 1e-7
 

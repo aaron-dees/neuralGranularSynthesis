@@ -232,11 +232,6 @@ class WaveformDecoder(nn.Module):
 
         audio = noise_filtering(filter_coeffs, self.filter_window)
 
-        # use below if we were using grains
-        # audio = audio.reshape(-1,n_grains,self.hparams.l_grain)
-        audio = audio.reshape(-1,1,self.l_grain)
-
-
         # Check if number of grains wanted is entered, else use the original
         if n_grains is None:
             audio = audio.reshape(-1,self.n_grains,self.l_grain)
