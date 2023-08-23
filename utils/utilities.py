@@ -125,12 +125,16 @@ def export_embedding_to_audio_reconstructions(l_model,w_model,batch, export_dir,
         z,z_hat = z.reshape(-1,w_model.z_dim),z_hat.reshape(-1,w_model.z_dim)
         # export reconstruction by pretrained waveform model and by embedding + waveform models
         audio,audio_hat = w_model.decode(z),w_model.decode(z_hat)
-        audio_export = torch.cat((audio,audio_hat),-1).cpu().numpy()
+        audio = audio.cpu().numpy()
+        audio_hat = audio_hat.cpu().numpy()
+        #audio_export = torch.cat((audio,audio_hat),-1).cpu().numpy()
         for i in range(audio_hat.shape[0]):
             if trainset:
-                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_"+str(i)+".wav"),audio_export[i,:], sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio[i,:], sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat[i,:], sr)
             else:
-                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_"+str(i)+".wav"),audio_export[i,:], sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio[i,:], sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat[i,:], sr)
 
 def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes, device, n_samples=10,temperature=1.):
     if os.path.exists(export_dir) is False:

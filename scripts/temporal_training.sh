@@ -11,4 +11,4 @@ nvidia-smi
 
 python --version
 
-python train_waveform_model_esc.py
+python train_temporal_model.py
