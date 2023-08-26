@@ -21,6 +21,9 @@ import wandb
 import numpy as np
 from datetime import datetime
 
+print(LATENT_SIZE)
+print(LOAD_WAVEFORM_CHECKPOINT)
+
 # start a new wandb run to track this script
 if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
@@ -66,7 +69,7 @@ if __name__ == "__main__":
                     num_samples=l_grain,
                     l_grain=l_grain,
                     h_dim=512,
-                    z_dim=128)
+                    z_dim=LATENT_SIZE)
     
     w_model.to(DEVICE)
 
@@ -289,6 +292,7 @@ if __name__ == "__main__":
             export_embedding_to_audio_reconstructions(l_model, w_model, batch, EXPORT_AUDIO_DIR, SAMPLE_RATE, DEVICE,trainset=True)
         
         print("-------- Exporting Audio Reconstructions DONE --------")
+
 
         #print("-------- Exporting Random Latent Audio Reconstructions --------")
 

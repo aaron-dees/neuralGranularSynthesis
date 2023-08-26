@@ -19,7 +19,8 @@ import numpy as np
 from datetime import datetime
 
 print("--- Device: ", DEVICE)
-print("--- Venv: ", sys.prefix)
+# print("--- Venv: ", sys.prefix)
+print(LATENT_SIZE)
 
 # start a new wandb run to track this script
 if WANDB:
@@ -64,7 +65,7 @@ if __name__ == "__main__":
                     num_samples=l_grain,
                     l_grain=l_grain,
                     h_dim=512,
-                    z_dim=128)
+                    z_dim=LATENT_SIZE)
     
     model.to(DEVICE)
 
