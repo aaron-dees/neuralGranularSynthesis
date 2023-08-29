@@ -28,6 +28,7 @@ def safe_log(x, eps=1e-7):
 #           - Transform noise signal and windowed filter coefficients into  fourier domain
 #           - Convolve the signal, by multiplying them in the fourier domain
 #           - Perform inverse fourier transform of new signal to get audio signal
+
 def noise_filtering(filter_coeffs,filter_window):
     N = filter_coeffs.shape[0]
     # get number of sample based on number of freq bins
@@ -51,6 +52,26 @@ def noise_filtering(filter_coeffs,filter_window):
     # convolve with noise signal
     # Create noise, why doe we multiply by 2 and subtract 1 here
     noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
+    # Transform noise and impulse response filters into fourier domain
+    S_noise = torch.fft.rfft(noise,dim=1)
+    S_filter = torch.fft.rfft(filter_ir,dim=1)
+    # Conv (multiply in fourier domain)
+    S = torch.mul(S_noise,S_filter)
+    # Invert back into time domain to get audio
+    audio = torch.fft.irfft(S)
+
+    # Note that overlapp and add is used here in DDSP, 
+    # but this is because they are usung a bunch of audio frames
+    # do they doe something similar in Neural Gran Synth
+
+    return audio
+
+def noise_filtering_adapted(filter_ir):
+
+
+    # convolve with noise signal
+    # Create noise, why doe we multiply by 2 and subtract 1 here
+    noise = torch.rand(filter_ir.shape[0], filter_ir.shape[1], dtype=filter_ir.dtype, device=filter_ir.device)*2-1
     # Transform noise and impulse response filters into fourier domain
     S_noise = torch.fft.rfft(noise,dim=1)
     S_filter = torch.fft.rfft(filter_ir,dim=1)

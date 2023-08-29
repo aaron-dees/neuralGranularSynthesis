@@ -3,7 +3,7 @@ sys.path.append('../')
 
 from utils.utilities import sample_from_distribution
 from scripts.configs.hyper_parameters_waveform import BATCH_SIZE, DEVICE, LATENT_SIZE
-from utils.dsp_components import noise_filtering, mod_sigmoid
+from utils.dsp_components import noise_filtering, mod_sigmoid, noise_filtering_adapted
 
 
 import torch
@@ -12,6 +12,7 @@ import torchvision.transforms as transforms
 from torch.nn import functional as F
 import numpy as np
 from scipy import signal
+import matplotlib.pyplot as plt
 
 # ------------
 # Waveform Model Components
@@ -230,20 +231,28 @@ class WaveformDecoder(nn.Module):
         # What does this do??
         filter_coeffs = mod_sigmoid(filter_coeffs)
 
-        audio = noise_filtering(filter_coeffs, self.filter_window)
+        # create impulse response
+        filter_coeffs = torch.complex(filter_coeffs,torch.zeros_like(filter_coeffs))
+        # Inverting filter coefficients from fourier domain --> tmie domain for windowing
+        filter_ir = torch.fft.irfft(filter_coeffs)
+
+        filter_ir = filter_ir*self.filter_window.unsqueeze(0).repeat(filter_coeffs.shape[0],1)
+
+        filter_ir = torch.fft.fftshift(filter_ir,dim=-1)
 
         # Check if number of grains wanted is entered, else use the original
         if n_grains is None:
-            audio = audio.reshape(-1,self.n_grains,self.l_grain)
+            filter_ir = filter_ir.reshape(-1,self.n_grains,self.l_grain)
         else:
-            audio = audio.reshape(-1,n_grains,self.l_grain)
-        bs = audio.shape[0]
+            filter_ir = filter_ir.reshape(-1,n_grains,self.l_grain)
+        bs = filter_ir.shape[0]
 
         # Check if an overlapp add window has been passed, if not use that used in encoding.
+        # TODO Does the window need shifted??
         if ola_windows is None:
-            audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
+            filter_ir = filter_ir*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
         else:
-            audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+            filter_ir = filter_ir*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
 
         # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
@@ -251,22 +260,26 @@ class WaveformDecoder(nn.Module):
         # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
         # since kernel size is l_grain, this is needed in the second dimension.
         if ola_folder is None:
-            audio_sum = self.ola_folder(audio.permute(0,2,1)).squeeze()
+            filter_sum = self.ola_folder(filter_ir.permute(0,2,1)).squeeze()
         else:
-            audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+            filter_sum = ola_folder(filter_ir.permute(0,2,1)).squeeze()
 
         # Normalise the energy values across the audio samples
         if self.normalize_ola:
             if ola_divisor is None:
                 # Normalises based on number of overlapping grains used in folding per point in time.
-                audio_sum = audio_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
+                filter_sum = filter_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
             else:
-                audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+                filter_sum = filter_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+
+        #Try noise filtering here
+        audio = noise_filtering_adapted(filter_sum)
 
         # This module applies a multi-channel temporal convolution that
         # learns a parallel set of time-invariant FIR filters and improves
         # the audio quality of the assembled signal.
-        audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
+        audio_sum = self.post_pro(audio.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
         return audio_sum
 
