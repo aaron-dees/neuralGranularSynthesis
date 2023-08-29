@@ -50,7 +50,9 @@ def noise_filtering(filter_coeffs,filter_window):
     filter_ir = torch.fft.fftshift(filter_ir,dim=-1)
     # convolve with noise signal
     # Create noise, why doe we multiply by 2 and subtract 1 here
-    noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
+    # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
+    single_noise = torch.rand(num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
+    noise = single_noise.unsqueeze(0).repeat(N, 1)
     # Transform noise and impulse response filters into fourier domain
     S_noise = torch.fft.rfft(noise,dim=1)
     S_filter = torch.fft.rfft(filter_ir,dim=1)
