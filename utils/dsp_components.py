@@ -1,6 +1,7 @@
 import torch
 import math
 import matplotlib.pyplot as plt
+from utils.utilities import generate_noise_grains
 
 ##################
 #   Modified Sigmoid
@@ -28,7 +29,7 @@ def safe_log(x, eps=1e-7):
 #           - Transform noise signal and windowed filter coefficients into  fourier domain
 #           - Convolve the signal, by multiplying them in the fourier domain
 #           - Perform inverse fourier transform of new signal to get audio signal
-def noise_filtering(filter_coeffs,filter_window):
+def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     N = filter_coeffs.shape[0]
     # get number of sample based on number of freq bins
     num_samples = (filter_coeffs.shape[1]-1)*2
@@ -50,7 +51,15 @@ def noise_filtering(filter_coeffs,filter_window):
     filter_ir = torch.fft.fftshift(filter_ir,dim=-1)
     # convolve with noise signal
     # Create noise, why doe we multiply by 2 and subtract 1 here
-    noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
+
+    bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
+    
+    noise = generate_noise_grains(bs, n_grains, l_grain, hop_ratio=0.25)
+    noise = noise.reshape(bs*n_grains, l_grain)
+    
+    # Old noise functions
+    # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
+
     # Transform noise and impulse response filters into fourier domain
     S_noise = torch.fft.rfft(noise,dim=1)
     S_filter = torch.fft.rfft(filter_ir,dim=1)

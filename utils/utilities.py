@@ -5,6 +5,7 @@ import seaborn as sns
 import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
+import torch.functional as F
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -147,5 +148,22 @@ def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes,
             z_hat = l_model.decode(rand_e,conds).reshape(-1, z_dim)
             audio_hat = w_model.decode(z_hat).view(-1).cpu().numpy()
             sf.write(os.path.join(export_dir,"random_samples_"+cl+".wav"),audio_hat, sr)
+
+def generate_noise_grains(batch_size, n_grains, l_grain, hop_ratio=0.25):
+
+    tar_l = int(((n_grains+3)/4)*l_grain)
+
+    noise = torch.rand(batch_size, tar_l)*2-1
+
+    hop_size = int(hop_ratio*l_grain)
+
+    new_noise = noise[:, 0:l_grain].unsqueeze(1)
+    for i in range(1, n_grains):  
+        starting_point = i*hop_size
+        ending_point = starting_point+l_grain
+        tmp_noise = noise[:, starting_point:ending_point].unsqueeze(1)
+        new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
+
+    return new_noise
         
     

@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from utils.utilities import sample_from_distribution
+from utils.utilities import sample_from_distribution, generate_noise_grains
 from scripts.configs.hyper_parameters_waveform import BATCH_SIZE, DEVICE, LATENT_SIZE
 from utils.dsp_components import noise_filtering, mod_sigmoid
 
@@ -12,6 +12,7 @@ import torchvision.transforms as transforms
 from torch.nn import functional as F
 import numpy as np
 from scipy import signal
+import matplotlib.pyplot as plt
 
 # ------------
 # Waveform Model Components
@@ -103,7 +104,8 @@ class WaveformEncoder(nn.Module):
         # Set the target length based on hardcodded equation (need to understand why this eq is choosen)
         self.tar_l = int((n_grains+3)/4*l_grain)
 
-        # define the slice_kernel, what is this?
+        # define the slice_kernel, this is used in convolution to expand out the grains.
+        # TODO look into this a little more, what is eye, identity matrix?
         self.slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
 
         self.hop_size = hop_size
@@ -229,8 +231,9 @@ class WaveformDecoder(nn.Module):
 
         # What does this do??
         filter_coeffs = mod_sigmoid(filter_coeffs)
-
-        audio = noise_filtering(filter_coeffs, self.filter_window)
+        
+        audio = noise_filtering(filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+        # audio = noise_filtering(filter_coeffs, self.ola_windows)
 
         # Check if number of grains wanted is entered, else use the original
         if n_grains is None:
