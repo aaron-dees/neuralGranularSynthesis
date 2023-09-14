@@ -199,26 +199,27 @@ class WaveformDecoder(nn.Module):
 
         self.filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
 
+        # NOTE Using l_grain*2 for ola_window here
         # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
         # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
-        ola_window = signal.hann(l_grain,sym=False)
+        ola_window = signal.hann(l_grain*2,sym=False)
         ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
-        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
-        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+        ola_windows[0,:(l_grain*2)//2] = ola_window[(l_grain*2)//2] # start of 1st grain is not windowed for preserving attacks
+        ola_windows[-1,(l_grain*2)//2:] = ola_window[(l_grain*2)//2] # end of last grain is not wondowed to preserving decays
         self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
-        print(self.ola_windows.shape)
 
         # Folder
         # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
         # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-        self.ola_folder = nn.Fold((self.tar_l,1),(l_grain,1),stride=(hop_size,1))
+        self.ola_folder = nn.Fold((self.tar_l+l_grain,1),(l_grain*2,1),stride=(hop_size,1))
 
         # Normalize OLA
+        # NOTE Using l_grain*2 for convolution debigging
         # This attempts to normalize the energy by dividing by the number of 
         # overlapping grains used when folding to get each point in times energy (amplitude).
         if normalize_ola:
-            unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-            input_ones = torch.ones(1,1,self.tar_l,1)
+            unfolder = nn.Unfold((l_grain*2,1),stride=(hop_size,1))
+            input_ones = torch.ones(1,1,self.tar_l+l_grain,1)
             ola_divisor = self.ola_folder(unfolder(input_ones)).squeeze()
             self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
         
@@ -234,19 +235,23 @@ class WaveformDecoder(nn.Module):
         
         audio = noise_filtering(filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
         # audio = noise_filtering(filter_coeffs, self.ola_windows)
+        # print("Noise filtering output: ", audio.shape)
 
         # Check if number of grains wanted is entered, else use the original
         if n_grains is None:
-            audio = audio.reshape(-1,self.n_grains,self.l_grain)
+            audio = audio.reshape(-1,self.n_grains,audio.shape[1])
         else:
-            audio = audio.reshape(-1,n_grains,self.l_grain)
+            audio = audio.reshape(-1,n_grains,audio.shape[1])
         bs = audio.shape[0]
+        # print(audio.shape)
 
         # Check if an overlapp add window has been passed, if not use that used in encoding.
         if ola_windows is None:
             audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
         else:
             audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+        
+        # print(audio.shape)
 
 
         # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
@@ -258,6 +263,8 @@ class WaveformDecoder(nn.Module):
         else:
             audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
 
+        # print(audio_sum.shape)
+
         # Normalise the energy values across the audio samples
         if self.normalize_ola:
             if ola_divisor is None:
@@ -266,12 +273,15 @@ class WaveformDecoder(nn.Module):
             else:
                 audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
+        # print(audio_sum.shape)
         # This module applies a multi-channel temporal convolution that
         # learns a parallel set of time-invariant FIR filters and improves
         # the audio quality of the assembled signal.
         audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
-        return audio_sum
+        # print("Final Shape: ", audio_sum[:,:self.tar_l].shape)
+
+        return audio_sum[:,:self.tar_l]
 
     def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
 

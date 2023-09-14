@@ -6,6 +6,7 @@ import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
 import torch.functional as F
+from scipy import fftpack
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -165,5 +166,43 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
         new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
 
     return new_noise
+
+def frame(signal, frame_length, frame_step, pad_end=False, pad_value=0, axis=-1):
+    """
+    equivalent of tf.signal.frame
+    """
+    pad_size = 0
+    signal_length = signal.shape[axis]
+    if pad_end:
+        frames_overlap = frame_length - frame_step
+        rest_samples = np.abs(signal_length - frames_overlap) % np.abs(frame_step)
+        if rest_samples != 0:
+            pad_size = int(frame_length - rest_samples)
+            pad_axis = [0] * signal.ndim
+            pad_axis[axis] = pad_size
+            signal = F.pad(signal, pad_axis, "constant", pad_value)
+    frames=signal.unfold(axis, frame_length, frame_step)
+    return frames
+
+# Time-varying convolution -----------------------------------------------------
+def get_fft_size(frame_size: int, ir_size: int, power_of_2: bool = True) -> int:
+  """Calculate final size for efficient FFT.
+
+  Args:
+    frame_size: Size of the audio frame.
+    ir_size: Size of the convolving impulse response.
+    power_of_2: Constrain to be a power of 2. If False, allow other 5-smooth
+      numbers. TPU requires power of 2, while GPU is more flexible.
+
+  Returns:
+    fft_size: Size for efficient FFT.
+  """
+  convolved_frame_size = ir_size + frame_size - 1
+  if power_of_2:
+    # Next power of 2.
+    fft_size = int(2**np.ceil(np.log2(convolved_frame_size)))
+  else:
+    fft_size = int(fftpack.helper.next_fast_len(convolved_frame_size))
+  return fft_size
         
     
