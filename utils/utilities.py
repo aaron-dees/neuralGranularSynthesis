@@ -149,11 +149,11 @@ def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes,
             audio_hat = w_model.decode(z_hat).view(-1).cpu().numpy()
             sf.write(os.path.join(export_dir,"random_samples_"+cl+".wav"),audio_hat, sr)
 
-def generate_noise_grains(batch_size, n_grains, l_grain, hop_ratio=0.25):
+def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_ratio=0.25):
 
     tar_l = int(((n_grains+3)/4)*l_grain)
 
-    noise = torch.rand(batch_size, tar_l)*2-1
+    noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
 
     hop_size = int(hop_ratio*l_grain)
 
