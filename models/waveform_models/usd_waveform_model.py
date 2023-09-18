@@ -202,24 +202,24 @@ class WaveformDecoder(nn.Module):
         # NOTE Using l_grain*2 for ola_window here
         # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
         # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
-        ola_window = signal.hann(l_grain*2,sym=False)
+        ola_window = signal.hann(l_grain,sym=False)
         ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
-        ola_windows[0,:(l_grain*2)//2] = ola_window[(l_grain*2)//2] # start of 1st grain is not windowed for preserving attacks
-        ola_windows[-1,(l_grain*2)//2:] = ola_window[(l_grain*2)//2] # end of last grain is not wondowed to preserving decays
+        ola_windows[0,:(l_grain)//2] = ola_window[(l_grain)//2] # start of 1st grain is not windowed for preserving attacks
+        ola_windows[-1,(l_grain)//2:] = ola_window[(l_grain)//2] # end of last grain is not wondowed to preserving decays
         self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
 
         # Folder
         # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
         # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-        self.ola_folder = nn.Fold((self.tar_l+l_grain,1),(l_grain*2,1),stride=(hop_size,1))
+        self.ola_folder = nn.Fold((self.tar_l,1),(l_grain,1),stride=(hop_size,1))
 
         # Normalize OLA
         # NOTE Using l_grain*2 for convolution debigging
         # This attempts to normalize the energy by dividing by the number of 
         # overlapping grains used when folding to get each point in times energy (amplitude).
         if normalize_ola:
-            unfolder = nn.Unfold((l_grain*2,1),stride=(hop_size,1))
-            input_ones = torch.ones(1,1,self.tar_l+l_grain,1)
+            unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
+            input_ones = torch.ones(1,1,self.tar_l,1)
             ola_divisor = self.ola_folder(unfolder(input_ones)).squeeze()
             self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
         
