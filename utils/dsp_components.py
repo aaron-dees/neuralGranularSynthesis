@@ -100,9 +100,7 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     S = torch.mul(S_noise,S_filter)
     # Invert back into time domain to get audio
     audio = torch.fft.irfft(S)
-    print("Audio shape: ", audio.shape)
     audio = audio[..., audio.shape[-1] // 2:]
-    print("Clipped Audio shape: ", audio.shape)
 
     # Note that overlapp and add is used here in DDSP, 
     # but this is because they are usung a bunch of audio frames
