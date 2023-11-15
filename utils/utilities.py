@@ -6,6 +6,7 @@ import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
 import torch.functional as F
+import librosa
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -165,5 +166,14 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
         new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
 
     return new_noise
+
+def generate_noise_grains_stft(batch_size, tar_l, dtype, device, hop_size):
+
+    noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+
+    noise_stft = librosa.stft(noise.cpu().numpy(), hop_length=hop_size)
+    noise_stft = torch.from_numpy(noise_stft)
+
+    return noise_stft
         
     
