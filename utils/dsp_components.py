@@ -1,7 +1,7 @@
 import torch
 import math
 import matplotlib.pyplot as plt
-from utils.utilities import generate_noise_grains
+from utils.utilities import generate_noise_grains, generate_noise_grains_stft
 
 ##################
 #   Modified Sigmoid
@@ -52,6 +52,8 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     # # convolve with noise signal
     # # Create noise, why doe we multiply by 2 and subtract 1 here
 
+    print("Filter coeff shape: ", filter_coeffs.shape)
+
     filter_ir = amp_to_impulse_response(filter_coeffs, l_grain)
 
     bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
@@ -63,7 +65,8 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     # Old noise functions
     # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
 
-
+    print(filter_ir.dtype)
+    print(noise.dtype)
     audio = fft_convolve(noise, filter_ir)
     # Transform noise and impulse response filters into fourier domain
     # S_noise = torch.fft.rfft(noise,dim=1)
@@ -81,6 +84,8 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
 
 def fft_convolve(signal, kernel):
 
+    # note is it wrong to be using the rfft here.
+
     signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
     kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
 
@@ -90,10 +95,37 @@ def fft_convolve(signal, kernel):
 
     return output
 
+def fft_convolve_2(signal, kernel):
+
+    signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
+    kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
+
+    output = torch.fft.rfft(signal) * torch.fft.rfft(kernel)
+    output = output[..., output.shape[-1] // 2:]
+
+
+    return output
+
 def amp_to_impulse_response(amp, target_size):
 
     amp = torch.stack([amp, torch.zeros_like(amp)], -1)
     amp = torch.view_as_complex(amp)
+    amp = torch.fft.irfft(amp)
+
+    filter_size = amp.shape[-1]
+
+    amp = torch.roll(amp, filter_size // 2, -1)
+    win = torch.hann_window(filter_size, dtype=amp.dtype, device=amp.device)
+
+    amp = amp * win
+
+    amp = torch.nn.functional.pad(amp, (0, int(target_size) - int(filter_size)))
+    amp = torch.roll(amp, -filter_size // 2, -1)
+
+    return amp
+
+def amp_to_impulse_response_w_phase(amp, target_size):
+
     amp = torch.fft.irfft(amp)
 
     filter_size = amp.shape[-1]
