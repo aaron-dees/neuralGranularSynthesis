@@ -13,6 +13,8 @@ from torch.nn import functional as F
 import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
+from scipy import fft
+import torch_dct as dct
 
 # ------------
 # Waveform Model Components
@@ -231,8 +233,22 @@ class WaveformDecoder(nn.Module):
 
         # What does this do??
         filter_coeffs = mod_sigmoid(filter_coeffs)
+
+        filter_coeffs[:, 128:] = 0.0
+
+        # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
+        # NOTE is there a torch implementation of this, bit of a bottleneck if not?
+        # NOTE issue with gradient flowwing back
+        inv_filter_coeffs = (dct.idct_2d(filter_coeffs))
+        #inv_cepstral_coeff = 10**(dct.idct_2d(cepstral_coeff) / 20)
+        # inv_filter_coeffs = torch.from_numpy(inv_cepstral_coeff, device=filter_coeffs.device)
+
+        # Try printing the spectral shape here
+
+        # try predicting only the needed coefficients.
+        # cc = torch.nn.functional.pad(filter_coeffs, (0, (2048/2 +1) - filter_coeffs.shape[1]))
         
-        audio = noise_filtering(filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+        audio = noise_filtering(inv_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
         # audio = noise_filtering(filter_coeffs, self.ola_windows)
 
         # Check if number of grains wanted is entered, else use the original

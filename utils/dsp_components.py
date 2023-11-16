@@ -84,11 +84,11 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
 
 def fft_convolve(signal, kernel):
 
-    # note is it wrong to be using the rfft here.
 
     signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
     kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
 
+    # NOTE Should I really be using ifft here since we want to keep the phase of the noise. 
     output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
     output = output[..., output.shape[-1] // 2:]
 
@@ -124,6 +124,7 @@ def amp_to_impulse_response(amp, target_size):
 
     return amp
 
+# When padding amp with complex component already in it.
 def amp_to_impulse_response_w_phase(amp, target_size):
 
     amp = torch.fft.irfft(amp)
