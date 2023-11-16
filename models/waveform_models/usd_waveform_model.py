@@ -233,6 +233,7 @@ class WaveformDecoder(nn.Module):
 
         # What does this do??
         filter_coeffs = mod_sigmoid(filter_coeffs)
+        # filter_coeffs = mod_sigmoid(filter_coeffs - 5)
 
         filter_coeffs[:, 128:] = 0.0
 
@@ -243,7 +244,7 @@ class WaveformDecoder(nn.Module):
         #inv_cepstral_coeff = 10**(dct.idct_2d(cepstral_coeff) / 20)
         # inv_filter_coeffs = torch.from_numpy(inv_cepstral_coeff, device=filter_coeffs.device)
 
-        # Try printing the spectral shape here
+        # Try printing the spectral shape here, after training ?
 
         # try predicting only the needed coefficients.
         # cc = torch.nn.functional.pad(filter_coeffs, (0, (2048/2 +1) - filter_coeffs.shape[1]))
