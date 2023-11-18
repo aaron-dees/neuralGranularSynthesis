@@ -52,8 +52,6 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     # # convolve with noise signal
     # # Create noise, why doe we multiply by 2 and subtract 1 here
 
-    print("Filter coeff shape: ", filter_coeffs.shape)
-
     filter_ir = amp_to_impulse_response(filter_coeffs, l_grain)
 
     bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
@@ -65,8 +63,6 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     # Old noise functions
     # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
 
-    print(filter_ir.dtype)
-    print(noise.dtype)
     audio = fft_convolve(noise, filter_ir)
     # Transform noise and impulse response filters into fourier domain
     # S_noise = torch.fft.rfft(noise,dim=1)

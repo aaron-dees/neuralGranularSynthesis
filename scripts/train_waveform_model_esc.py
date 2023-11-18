@@ -27,7 +27,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_waveformVAE_GPU",
+        project="SeaWaves_waveformVAE_CCFilters_GPU",
         name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -184,7 +184,7 @@ if __name__ == "__main__":
             # get avg training statistics 
             train_loss = running_train_loss/len(train_dataloader) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = running_kl_loss/len(train_dataloader)
-            spec_loss = running_spec_loss/len(train_dataloader)
+            train_spec_loss = running_spec_loss/len(train_dataloader)
             env_loss = running_env_loss/len(train_dataloader)
 
             # Validate - turn gradient tracking off for validation. 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 
             # wandb logging
             if WANDB:
-                wandb.log({"kl_loss": kl_loss, "spec_loss": spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
+                wandb.log({"kl_loss": kl_loss, "spec_loss": train_spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
