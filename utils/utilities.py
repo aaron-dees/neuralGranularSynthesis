@@ -7,6 +7,7 @@ from sklearn.decomposition import PCA
 import numpy as np
 import torch.functional as F
 import librosa
+from scipy import fft
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -175,5 +176,25 @@ def generate_noise_grains_stft(batch_size, tar_l, dtype, device, hop_size):
     noise_stft = torch.from_numpy(noise_stft)
 
     return noise_stft
+
+def print_spectral_shape(waveform, hop_size):
+
+    print("-----Saving Spectral Shape-----")
+
+    stft = librosa.stft(waveform.squeeze().cpu().numpy(), hop_length=hop_size)
+
+    print(stft.shape)
+
+    log_pow_stft = 20*np.log10(np.abs(stft))
+    plt.plot(log_pow_stft.T[0])
+
+    # Note transposing for librosa
+    cepstral_coeff = fft.dct(log_pow_stft.T)
+
+    cepstral_coeff[:, 128:] = 0
+
+    inv_cepstral_coeff = fft.idct(cepstral_coeff)
+    plt.plot(inv_cepstral_coeff[0])
+    plt.savefig("spectral_shape.png")
         
     
