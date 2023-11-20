@@ -189,7 +189,7 @@ def print_spectral_shape(waveform, learnt_spec_shape, hop_size, l_grain):
 
     grain_db = 20*np.log10(np.abs(grain_fft))
 
-    # plt.plot(grain_db[0])
+    plt.plot(grain_db[0])
 
     # Note transposing for librosa
     cepstral_coeff = fft.dct(grain_db)
@@ -197,7 +197,7 @@ def print_spectral_shape(waveform, learnt_spec_shape, hop_size, l_grain):
     cepstral_coeff[:, 128:] = 0
 
     inv_cepstral_coeff = fft.idct(cepstral_coeff)
-    # plt.plot(inv_cepstral_coeff[0])
+    plt.plot(inv_cepstral_coeff[0])
 
     plt.plot(learnt_spec_shape[0])
 
