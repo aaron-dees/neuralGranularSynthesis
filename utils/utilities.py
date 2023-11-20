@@ -5,7 +5,7 @@ import seaborn as sns
 import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
-import torch.functional as F
+from torch.nn import functional as F
 import librosa
 from scipy import fft
 
@@ -177,24 +177,30 @@ def generate_noise_grains_stft(batch_size, tar_l, dtype, device, hop_size):
 
     return noise_stft
 
-def print_spectral_shape(waveform, hop_size):
+def print_spectral_shape(waveform, learnt_spec_shape, hop_size, l_grain):
 
     print("-----Saving Spectral Shape-----")
 
-    stft = librosa.stft(waveform.squeeze().cpu().numpy(), hop_length=hop_size)
+    slice_kernel = torch.eye(l_grain).unsqueeze(1)
+    mb_grains = F.conv1d(waveform.unsqueeze(0).unsqueeze(0).cpu(), slice_kernel,stride=hop_size,groups=1,bias=None)
+    mb_grains = mb_grains.permute(0,2,1).squeeze()
 
-    print(stft.shape)
+    grain_fft = fft.rfft(mb_grains.cpu().numpy())
 
-    log_pow_stft = 20*np.log10(np.abs(stft))
-    plt.plot(log_pow_stft.T[0])
+    grain_db = 20*np.log10(np.abs(grain_fft))
+
+    # plt.plot(grain_db[0])
 
     # Note transposing for librosa
-    cepstral_coeff = fft.dct(log_pow_stft.T)
+    cepstral_coeff = fft.dct(grain_db)
 
     cepstral_coeff[:, 128:] = 0
 
     inv_cepstral_coeff = fft.idct(cepstral_coeff)
-    plt.plot(inv_cepstral_coeff[0])
+    # plt.plot(inv_cepstral_coeff[0])
+
+    plt.plot(learnt_spec_shape[0])
+
     plt.savefig("spectral_shape.png")
         
     

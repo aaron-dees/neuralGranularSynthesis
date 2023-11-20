@@ -240,7 +240,10 @@ class WaveformDecoder(nn.Module):
         # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
         # NOTE is there a torch implementation of this, bit of a bottleneck if not?
         # NOTE issue with gradient flowwing back
+        print("Filter coeffs shape")
+        print(filter_coeffs.shape)
         inv_filter_coeffs = (dct.idct_2d(filter_coeffs))
+        print(inv_filter_coeffs.shape)
         #inv_cepstral_coeff = 10**(dct.idct_2d(cepstral_coeff) / 20)
         # inv_filter_coeffs = torch.from_numpy(inv_cepstral_coeff, device=filter_coeffs.device)
 
@@ -288,7 +291,7 @@ class WaveformDecoder(nn.Module):
         # the audio quality of the assembled signal.
         audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
-        return audio_sum
+        return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
 
     def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
 
@@ -352,9 +355,9 @@ class WaveformVAE(nn.Module):
 
     def decode(self, z):
             
-        x_hat = self.Decoder(z)
+        x_hat, spec = self.Decoder(z)
             
-        return x_hat
+        return x_hat, spec
 
     def forward(self, x, sampling=True):
 
@@ -366,8 +369,8 @@ class WaveformVAE(nn.Module):
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
-            x_hat = self.Decoder(z)
+            x_hat, spec = self.Decoder(z)
         else:
-            x_hat = self.Decoder(mu)
+            x_hat, spec = self.Decoder(mu)
 
-        return x_hat, z, mu, log_variance
+        return x_hat, z, mu, log_variance, spec
