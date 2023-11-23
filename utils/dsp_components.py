@@ -1,7 +1,8 @@
 import torch
 import math
 import matplotlib.pyplot as plt
-from utils.utilities import generate_noise_grains, generate_noise_grains_stft
+# from utils.utilities import generate_noise_grains, generate_noise_grains_stft
+import utils.utilities as utils
 
 ##################
 #   Modified Sigmoid
@@ -56,7 +57,7 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
 
     bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
     
-    noise = generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=0.25)
+    noise = utils.generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=0.25)
     noise = noise.reshape(bs*n_grains, l_grain)
 
     

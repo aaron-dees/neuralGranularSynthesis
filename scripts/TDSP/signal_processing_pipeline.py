@@ -18,6 +18,7 @@ torch.manual_seed(0)
 train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
 for batch, labels in train_dataloader:
+    # batch = batch[0,:]
     slice_kernel = torch.eye(l_grain).unsqueeze(1)
     stft = librosa.stft(batch.squeeze().cpu().numpy(), hop_length=hop_size)
     mel = librosa.feature.melspectrogram(S=np.abs(stft)**2, sr=SAMPLE_RATE)
@@ -35,9 +36,11 @@ for batch, labels in train_dataloader:
     print("Librosa stft: ", stft.shape)
     print("Librosa mel: ", mel.shape)
     print("Librosa inv_mel: ", inv_mel.shape)
-    mel = librosa.feature.melspectrogram(batch.squeeze().cpu().numpy(), sr=SAMPLE_RATE, hop_length=hop_size)
+    mel = librosa.feature.melspectrogram(y=batch.squeeze().cpu().numpy(), sr=SAMPLE_RATE, hop_length=hop_size)
     recon_audio_lib_rosa_orig = librosa.feature.inverse.mel_to_audio(mel, sr=SAMPLE_RATE, hop_length=hop_size)
     recon_audio_lib_rosa_orig = torch.from_numpy(recon_audio_lib_rosa_orig).unsqueeze(dim=0)
+
+    print("unsqueezed batch: ", batch.unsqueeze(1).shape)
 
     mb_grains = F.conv1d(batch.unsqueeze(1), slice_kernel,stride=hop_size,groups=1,bias=None)
     mb_grains = mb_grains.permute(0,2,1)
@@ -64,7 +67,7 @@ grain_fft = fft.rfft(audio.cpu().numpy())
 print("Grain Shape:", grain_fft.shape)
 # plt.savefig("grain_fft.png")
 grain_db = 20*np.log10(np.abs(grain_fft))
-plt.plot(grain_db[0])
+# plt.plot(grain_db[0])
 inv_grain_fft = torch.from_numpy(fft.ifft(10**(grain_db/20), 2048).real)
 print("Inv Grain Shape:", inv_grain_fft.shape)
 
@@ -154,6 +157,14 @@ print("Inv Mel STFT: ", inv_mel_grains.shape)
 # ----- GET MFCC END -----
 
 cepstral_coeff = fft.dct(grain_db)
+
+print("HERE")
+print(grain_db.shape)
+log_pow_stft = 20*np.log10(np.abs(stft))
+print(stft.shape)
+plt.plot(log_pow_stft.T[0])
+# Note transposing for librosa
+cepstral_coeff = fft.dct(log_pow_stft.T)
 
 # Cut of some of the shape
 cepstral_coeff[:,128:] = 0

@@ -5,7 +5,7 @@ from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformD
 from models.dataloaders.waveform_dataloaders import ESC50WaveformDataset, make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
-from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape
+from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
 
 
 import torch
@@ -313,6 +313,8 @@ if __name__ == "__main__":
             print(spec.shape)
 
             print_spectral_shape(waveforms[0,:], spec[0,:,:].cpu().numpy(), hop_size, l_grain)
+
+            filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 

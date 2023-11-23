@@ -11,13 +11,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import librosa
 
-from utils.dsp_components import generate_noise_grains, amp_to_impulse_response, amp_to_impulse_response_w_phase, fft_convolve
+import utils.dsp_components as dsp
+import utils.utilities as utils
 
 torch.manual_seed(0)
 
 train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
-for batch, labels in train_dataloader:
+test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
+test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
+
+for batch, labels in test_dataloader:
     slice_kernel = torch.eye(l_grain).unsqueeze(1)
     mb_grains = F.conv1d(batch.unsqueeze(1), slice_kernel,stride=hop_size,groups=1,bias=None)
     mb_grains = mb_grains.permute(0,2,1)
@@ -58,13 +62,13 @@ print(inv_cepstral_coeff.shape)
 
 # Remove windowing by removing the below function altogether.
 
-filter_ir = amp_to_impulse_response_w_phase(inv_cepstral_coeff, l_grain)
+filter_ir = dsp.amp_to_impulse_response_w_phase(inv_cepstral_coeff, l_grain)
 
-noise = generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
+noise = utils.generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
 noise = noise.reshape(bs*n_grains, l_grain)
 
 print("Noise shape: ", noise.shape)
-audio = fft_convolve(noise, filter_ir)
+audio = dsp.fft_convolve(noise, filter_ir)
 grain_fft_2 = fft.rfft(audio.cpu().numpy())
 
 # Check if number of grains wanted is entered, else use the original

@@ -6,8 +6,14 @@ import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
 from torch.nn import functional as F
+import torchaudio
 import librosa
-from scipy import fft
+from scipy import fft, signal
+import torch_dct as dct
+# from dsp_components import amp_to_impulse_response_w_phase
+import utils.dsp_components as dsp
+from scripts.configs.hyper_parameters_waveform import NORMALIZE_OLA, RECONSTRUCTION_SAVE_DIR, SAMPLE_RATE
+
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -202,5 +208,70 @@ def print_spectral_shape(waveform, learnt_spec_shape, hop_size, l_grain):
     plt.plot(learnt_spec_shape[0])
 
     plt.savefig("spectral_shape.png")
+
+def filter_spectral_shape(waveform, hop_size, l_grain, n_grains, tar_l):
+
+    print("-----Noise filtering Spectral Shape-----")
+    # Set BS equal to 1
+    bs = 1
+
+    slice_kernel = torch.eye(l_grain).unsqueeze(1)
+    mb_grains = F.conv1d(waveform.unsqueeze(0).unsqueeze(0).cpu(), slice_kernel,stride=hop_size,groups=1,bias=None)
+    mb_grains = mb_grains.permute(0,2,1).squeeze()
+
+    grain_fft = fft.rfft(mb_grains.cpu().numpy())
+    grain_db = 20*np.log10(np.abs(grain_fft))
+
+    # Note transposing for librosa
+    cepstral_coeff = fft.dct(grain_db)
+    cc_test = dct.dct(torch.from_numpy(grain_db))
+
+    cepstral_coeff[:, 128:] = 0
+
+    inv_cepstral_coeff = 10**(fft.idct(cepstral_coeff) / 20)
+    i_cc_test = 10**(dct.idct(torch.from_numpy(cepstral_coeff)) / 20)
+
+    filter_ir = dsp.amp_to_impulse_response_w_phase(torch.from_numpy(inv_cepstral_coeff), l_grain)
+
+    noise = generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
+    noise = noise.reshape(bs*n_grains, l_grain)
+
+    audio = dsp.fft_convolve(noise, filter_ir)
+
+    # Check if number of grains wanted is entered, else use the original
+    audio = audio.reshape(-1,n_grains,l_grain)
+    # audio = inv_grain_fft.reshape(-1,n_grains,l_grain)
+
+    # Check if an overlapp add window has been passed, if not use that used in encoding.
+
+    ola_window = signal.hann(l_grain,sym=False)
+    ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+    ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+    ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+    ola_windows = ola_windows
+    audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+    audio = audio/torch.max(audio)
+
+
+    # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+    # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+    # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+    # since kernel size is l_grain, this is needed in the second dimension.
+    ola_folder = torch.nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
+    audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+
+    # Normalise the energy values across the audio samples
+    if NORMALIZE_OLA:
+        # Normalises based on number of overlapping grains used in folding per point in time.
+        unfolder = torch.nn.Unfold((l_grain,1),stride=(hop_size,1))
+        input_ones = torch.ones(1,1,tar_l,1)
+        ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+        ola_divisor = ola_divisor
+        audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+    #for testing
+    for i in range(audio_sum.shape[0]):
+        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/cc_filtering_{i}.wav', audio_sum[i].unsqueeze(0).cpu(), SAMPLE_RATE)
         
     

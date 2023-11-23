@@ -242,15 +242,16 @@ class WaveformDecoder(nn.Module):
         # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
         # NOTE is there a torch implementation of this, bit of a bottleneck if not?
         # NOTE issue with gradient flowwing back
-        inv_filter_coeffs = (dct.idct_2d(filter_coeffs))
-        #inv_cepstral_coeff = 10**(dct.idct_2d(cepstral_coeff) / 20)
+        # NOTE changed this from idct_2d to idct
+        # inv_filter_coeffs = (dct.idct(filter_coeffs))
+        inv_filter_coeffs = 10**(dct.idct(filter_coeffs) / 20)
         # inv_filter_coeffs = torch.from_numpy(inv_cepstral_coeff, device=filter_coeffs.device)
 
         # try predicting only the needed coefficients.
         # cc = torch.nn.functional.pad(filter_coeffs, (0, (2048/2 +1) - filter_coeffs.shape[1]))
         
-        audio = noise_filtering(inv_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
-        # audio = noise_filtering(orig_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+        # audio = noise_filtering(inv_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+        audio = noise_filtering(orig_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
 
 
         # Check if number of grains wanted is entered, else use the original
@@ -284,6 +285,7 @@ class WaveformDecoder(nn.Module):
             else:
                 audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
+        # NOTE Removed the post processing step for now
         # This module applies a multi-channel temporal convolution that
         # learns a parallel set of time-invariant FIR filters and improves
         # the audio quality of the assembled signal.

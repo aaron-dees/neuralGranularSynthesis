@@ -21,19 +21,23 @@ train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes 
 for batch, labels in train_dataloader:
 
     # try and pad the windows
+    batch = batch[0,:]
 
     stft = librosa.stft(batch.squeeze().cpu().numpy(), hop_length=hop_size)
 
     log_pow_stft = 20*np.log10(np.abs(stft))
+    plt.plot(log_pow_stft.T[0])
 
     # Note transposing for librosa
     cepstral_coeff = fft.dct(log_pow_stft.T)
 
     print("CC Shape: ", cepstral_coeff.shape)
 
-    # cepstral_coeff[:, 128:] = 0
+    cepstral_coeff[:, 128:] = 0
 
     inv_cepstral_coeff = fft.idct(cepstral_coeff)
+    plt.plot(inv_cepstral_coeff[0])
+    plt.savefig("comparison.png")
     inv_cepstral_coeff = 10**(inv_cepstral_coeff/20)
     # Transpose for librosa
     inv_cepstral_coeff = inv_cepstral_coeff.T
