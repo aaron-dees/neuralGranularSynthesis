@@ -217,21 +217,37 @@ def filter_spectral_shape(waveform, hop_size, l_grain, n_grains, tar_l):
 
     slice_kernel = torch.eye(l_grain).unsqueeze(1)
     mb_grains = F.conv1d(waveform.unsqueeze(0).unsqueeze(0).cpu(), slice_kernel,stride=hop_size,groups=1,bias=None)
-    mb_grains = mb_grains.permute(0,2,1).squeeze()
+    mb_grains = mb_grains.permute(0,2,1)
+
+    ola_window = signal.hann(l_grain,sym=False)
+    ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+    ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+    ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+    ola_windows = torch.nn.Parameter(ola_windows,requires_grad=False)
+    mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
 
     grain_fft = fft.rfft(mb_grains.cpu().numpy())
+    grain_fft_torch = torch.fft.rfft(mb_grains)
+    # grain_db = 20*np.log10(np.abs(grain_fft))
     grain_db = 20*np.log10(np.abs(grain_fft))
+    grain_db_torch = 20*torch.log10(torch.abs(grain_fft_torch))
 
     # Note transposing for librosa
     cepstral_coeff = fft.dct(grain_db)
-    cc_test = dct.dct(torch.from_numpy(grain_db))
+    cepstral_coeff_torch = dct.dct(grain_db_torch)
 
-    cepstral_coeff[:, 128:] = 0
+    cepstral_coeff[:, :, 128:] = 0
+    cepstral_coeff_torch[:, :, 128:] = 0
 
-    inv_cepstral_coeff = 10**(fft.idct(cepstral_coeff) / 20)
-    i_cc_test = 10**(dct.idct(torch.from_numpy(cepstral_coeff)) / 20)
+    # Use torch and dct for now
+    cepstral_coeff = cepstral_coeff_torch
 
-    filter_ir = dsp.amp_to_impulse_response_w_phase(torch.from_numpy(inv_cepstral_coeff), l_grain)
+    # inv_cepstral_coeff = 10**(fft.idct(cepstral_coeff) / 20)
+    inv_cepstral_coeff = 10**(dct.idct(cepstral_coeff) / 20)
+
+    # filter_ir = dsp.amp_to_impulse_response_w_phase(torch.from_numpy(inv_cepstral_coeff), l_grain)
+    filter_ir = dsp.amp_to_impulse_response_w_phase(inv_cepstral_coeff, l_grain)
 
     noise = generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
     noise = noise.reshape(bs*n_grains, l_grain)
