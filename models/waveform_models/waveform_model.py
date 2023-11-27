@@ -383,14 +383,8 @@ class CepstralCoeffsEncoder(nn.Module):
     def __init__(self,
                     n_grains,
                     hop_size,
-                    kernel_size=9,
-                    channels=128,
-                    stride=4,
-                    n_convs=3,
-                    num_samples=2048,
+                    n_cc,
                     l_grain=2048,
-                    h_dim=512,
-                    z_dim=128
                     ):
         super(CepstralCoeffsEncoder, self).__init__()
 
@@ -399,6 +393,8 @@ class CepstralCoeffsEncoder(nn.Module):
         self.l_grain = l_grain
         # Set the target length based on hardcodded equation (need to understand why this eq is choosen)
         self.tar_l = int((n_grains+3)/4*l_grain)
+
+        self.n_cc = n_cc
 
         # define the slice_kernel, this is used in convolution to expand out the grains.
         # TODO look into this a little more, what is eye, identity matrix?
@@ -414,15 +410,14 @@ class CepstralCoeffsEncoder(nn.Module):
         ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
         self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
 
-        encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
-        encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
-        # print(encoder_convs)
-        self.encoder_convs = nn.ModuleList(encoder_convs)
 
-        self.flatten_size = int(channels*l_grain/(stride**n_convs))
-        self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
-        self.mu = nn.Linear(z_dim,z_dim)
-        self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        # self.flatten_size = int(channels*l_grain/(stride**n_convs))
+        # self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
+        # self.mu = nn.Linear(z_dim,z_dim)
+        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+
+        # Normalise with learnable scale and shift
+        self.norm = nn.InstanceNorm1d(self.n_cc, affine=True)
 
     def encode(self, x):
 
@@ -448,36 +443,38 @@ class CepstralCoeffsEncoder(nn.Module):
         mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
         
         grain_fft = torch.fft.rfft(mb_grains)
-
         grain_db = 20*torch.log10(torch.abs(grain_fft))
-
         cepstral_coeff = dct.dct(grain_db)
-
         # Take the first 128 cepstral coefficients
-        cepstral_coeff[:, :, 128:] = 0
-        # cepstral_coeff = cepstral_coeff[:,:,:128]
+        cepstral_coeff = cepstral_coeff[:,:,:self.n_cc]
 
-        print(cepstral_coeff.shape)
-        print(cepstral_coeff[0,:,:].sum())
+        # Step 2 - Normalize
+        # perform permutation to order as [bs, cc, grains], so that s scale and shift it learned for each CC
+        cepstral_coeff = cepstral_coeff.permute(0,2,1)
+        z = self.norm(cepstral_coeff)
 
-        # merge the grain dimension into batch dimension
-        # mb_grains of shape [bs*n_grains,1,l_grain]
-        mb_grains = mb_grains.reshape(bs*self.n_grains,self.l_grain).unsqueeze(1)
-
+        # permute back to [bs, grains, cc]
+        z = z.permute(0, 2, 1)
 
 
 
         # Get Cepstral Coeficients
 
-        # print("----- MFCC Test -----")
+        print("----- MFCC Test -----")
+
+        mfcc_transform = torchaudio.transforms.MFCC(
+            sample_rate=44100,
+            n_mfcc=30,
+            log_mels=True,
+            melkwargs=dict(
+            n_fft=2048, hop_length=512, n_mels=128, f_min=20.0, f_max=8000.0,
+            ),
+        )
 
         # transform = torchaudio.transforms.MFCC(sample_rate = 44100, n_mfcc=30, melkwargs={"n_fft": 1024, "hop_length": self.hop_size, "n_mels": 128, "center": False})
-        # mfcc = transform(x)
-        # print(mfcc.shape)
-
-        # mfcc = librosa.feature.mfcc(y=x[0,:].squeeze().cpu().numpy(), sr=44100, hop_length=self.hop_size, n_mfcc=30)
-        # print(mfcc.shape)
-
+        mfcc = mfcc_transform(x)
+        print(mfcc.shape)
+        print(mfcc[:, :, :-1].shape)
 
         # Normalize
         # z = self.z_norm()
