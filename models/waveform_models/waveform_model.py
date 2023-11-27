@@ -15,6 +15,8 @@ from scipy import signal
 import matplotlib.pyplot as plt
 from scipy import fft
 import torch_dct as dct
+import torchaudio
+import librosa
 
 # ------------
 # Waveform Model Components
@@ -374,3 +376,120 @@ class WaveformVAE(nn.Module):
             x_hat, spec = self.Decoder(mu)
 
         return x_hat, z, mu, log_variance, spec
+    
+# Waveform encoder is a little similar to wavenet architecture with some changes
+class CepstralCoeffsEncoder(nn.Module):
+
+    def __init__(self,
+                    n_grains,
+                    hop_size,
+                    kernel_size=9,
+                    channels=128,
+                    stride=4,
+                    n_convs=3,
+                    num_samples=2048,
+                    l_grain=2048,
+                    h_dim=512,
+                    z_dim=128
+                    ):
+        super(CepstralCoeffsEncoder, self).__init__()
+
+
+        self.n_grains = n_grains
+        self.l_grain = l_grain
+        # Set the target length based on hardcodded equation (need to understand why this eq is choosen)
+        self.tar_l = int((n_grains+3)/4*l_grain)
+
+        # define the slice_kernel, this is used in convolution to expand out the grains.
+        # TODO look into this a little more, what is eye, identity matrix?
+        self.slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
+
+        self.hop_size = hop_size
+
+        # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
+        # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
+        ola_window = signal.hann(l_grain,sym=False)
+        ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+        self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+
+        encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
+        encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
+        # print(encoder_convs)
+        self.encoder_convs = nn.ModuleList(encoder_convs)
+
+        self.flatten_size = int(channels*l_grain/(stride**n_convs))
+        self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
+        self.mu = nn.Linear(z_dim,z_dim)
+        self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+
+    def encode(self, x):
+
+
+        # print("Running necoder")
+
+        #
+
+        # Step 1 - Get cepstral coefficients from audio
+        # Alternative could be to use torchaudio.transforms.LFCC?
+        # transform = torchaudio.transforms.LFCC(
+        #     sample_rate=44100,
+        #     n_lfcc=128,
+        #     speckwargs={"n_fft": self.l_grain, "hop_length": self.hop_size, "center": False},
+        # )
+        # lfcc = transform(x)
+
+        # This turns our sample into overlapping grains
+        mb_grains = F.conv1d(x.unsqueeze(1),self.slice_kernel,stride=self.hop_size,groups=1,bias=None)
+        mb_grains = mb_grains.permute(0,2,1)
+        bs = mb_grains.shape[0]
+        # repeat the overlap add windows acrosss the batch and apply to the grains
+        mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
+        
+        grain_fft = torch.fft.rfft(mb_grains)
+
+        grain_db = 20*torch.log10(torch.abs(grain_fft))
+
+        cepstral_coeff = dct.dct(grain_db)
+
+        # Take the first 128 cepstral coefficients
+        cepstral_coeff[:, :, 128:] = 0
+        # cepstral_coeff = cepstral_coeff[:,:,:128]
+
+        print(cepstral_coeff.shape)
+        print(cepstral_coeff[0,:,:].sum())
+
+        # merge the grain dimension into batch dimension
+        # mb_grains of shape [bs*n_grains,1,l_grain]
+        mb_grains = mb_grains.reshape(bs*self.n_grains,self.l_grain).unsqueeze(1)
+
+
+
+
+        # Get Cepstral Coeficients
+
+        # print("----- MFCC Test -----")
+
+        # transform = torchaudio.transforms.MFCC(sample_rate = 44100, n_mfcc=30, melkwargs={"n_fft": 1024, "hop_length": self.hop_size, "n_mels": 128, "center": False})
+        # mfcc = transform(x)
+        # print(mfcc.shape)
+
+        # mfcc = librosa.feature.mfcc(y=x[0,:].squeeze().cpu().numpy(), sr=44100, hop_length=self.hop_size, n_mfcc=30)
+        # print(mfcc.shape)
+
+
+        # Normalize
+        # z = self.z_norm()
+
+
+        return 
+        # return z, mu, logvar
+
+    def forward(self, audio):
+
+        # z, mu, logvar = self.encode(audio)
+        self.encode(audio)
+
+        # return z, mu, logvar
+        return 
