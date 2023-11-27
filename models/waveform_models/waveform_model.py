@@ -383,7 +383,10 @@ class CepstralCoeffsEncoder(nn.Module):
     def __init__(self,
                     n_grains,
                     hop_size,
-                    n_cc,
+                    n_cc=30,
+                    hidden_size=512,
+                    bidirectional=False,
+                    z_dim = 128,
                     l_grain=2048,
                     ):
         super(CepstralCoeffsEncoder, self).__init__()
@@ -395,6 +398,10 @@ class CepstralCoeffsEncoder(nn.Module):
         self.tar_l = int((n_grains+3)/4*l_grain)
 
         self.n_cc = n_cc
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        self.z_dim = z_dim
+        self.hidden_size = hidden_size
 
         # define the slice_kernel, this is used in convolution to expand out the grains.
         # TODO look into this a little more, what is eye, identity matrix?
@@ -419,12 +426,23 @@ class CepstralCoeffsEncoder(nn.Module):
         # Normalise with learnable scale and shift
         self.norm = nn.InstanceNorm1d(self.n_cc, affine=True)
 
+        self.gru = nn.GRU(
+            input_size=self.n_cc,
+            hidden_size=self.hidden_size,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=self.bidirectional
+        )
+
+        self.dense = nn.Linear(self.hidden_size * 2 if self.bidirectional else self.hidden_size, self.z_dim)
+
+        # Note this for an AE, try with VAE, for mu and logvar
+        # self.mu = nn.Linear(z_dim,z_dim)
+        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+
+
+
     def encode(self, x):
-
-
-        # print("Running necoder")
-
-        #
 
         # Step 1 - Get cepstral coefficients from audio
         # Alternative could be to use torchaudio.transforms.LFCC?
@@ -441,7 +459,6 @@ class CepstralCoeffsEncoder(nn.Module):
         bs = mb_grains.shape[0]
         # repeat the overlap add windows acrosss the batch and apply to the grains
         mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
-        
         grain_fft = torch.fft.rfft(mb_grains)
         grain_db = 20*torch.log10(torch.abs(grain_fft))
         cepstral_coeff = dct.dct(grain_db)
@@ -452,41 +469,133 @@ class CepstralCoeffsEncoder(nn.Module):
         # perform permutation to order as [bs, cc, grains], so that s scale and shift it learned for each CC
         cepstral_coeff = cepstral_coeff.permute(0,2,1)
         z = self.norm(cepstral_coeff)
-
         # permute back to [bs, grains, cc]
         z = z.permute(0, 2, 1)
 
+        # Step 3 - RNN
+        z, _ = self.gru(z)
 
 
-        # Get Cepstral Coeficients
+        # Step 4 - dense layer
+        z = self.dense(z)
 
-        print("----- MFCC Test -----")
-
-        mfcc_transform = torchaudio.transforms.MFCC(
-            sample_rate=44100,
-            n_mfcc=30,
-            log_mels=True,
-            melkwargs=dict(
-            n_fft=2048, hop_length=512, n_mels=128, f_min=20.0, f_max=8000.0,
-            ),
-        )
-
-        # transform = torchaudio.transforms.MFCC(sample_rate = 44100, n_mfcc=30, melkwargs={"n_fft": 1024, "hop_length": self.hop_size, "n_mels": 128, "center": False})
-        mfcc = mfcc_transform(x)
-        print(mfcc.shape)
-        print(mfcc[:, :, :-1].shape)
-
-        # Normalize
-        # z = self.z_norm()
-
-
-        return 
+        # Step 5 - mu and log var layers
+        # mu = self.mu(z)
+        # logvar = self.logvar(z)
+        # z = sample_from_distribution(mu, logvar)
+ 
+        return z
         # return z, mu, logvar
 
     def forward(self, audio):
 
         # z, mu, logvar = self.encode(audio)
-        self.encode(audio)
+        z= self.encode(audio)
 
         # return z, mu, logvar
+        return z
+
+# Waveform decoder consists simply of dense layers.
+class CepstralCoeffsDecoder(nn.Module):
+
+    def __init__(self,
+                    n_grains,
+                    hop_size,
+                    normalize_ola,
+                    pp_chans,
+                    pp_ker,
+                    n_linears=3,
+                    l_grain = 2048,
+                    h_dim=512,
+                    z_dim=128
+                    ):
+        super(CepstralCoeffsDecoder, self).__init__()
+
+        self.n_grains = n_grains
+        self.l_grain = l_grain
+        self.filter_size = l_grain//2+1
+        self.tar_l = int((n_grains+3)/4*l_grain)
+        self.normalize_ola = normalize_ola
+        self.pp_chans = pp_chans
+
+        # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
+        # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
+        ola_window = signal.hann(l_grain,sym=False)
+        ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+        self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+        print(self.ola_windows.shape)
+
+        # Folder
+        # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
+        # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
+        self.ola_folder = nn.Fold((self.tar_l,1),(l_grain,1),stride=(hop_size,1))
+
+        # Normalize OLA
+        # This attempts to normalize the energy by dividing by the number of 
+        # overlapping grains used when folding to get each point in times energy (amplitude).
+        if normalize_ola:
+            unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
+            input_ones = torch.ones(1,1,self.tar_l,1)
+            ola_divisor = self.ola_folder(unfolder(input_ones)).squeeze()
+            self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
+        
+        # TODO Look at NGS paper, and ref paper as to how and why this works.
+        self.post_pro = nn.Sequential(nn.Conv1d(pp_chans, 1, pp_ker, padding=pp_ker//2),nn.Softsign())
+
+    def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
+
+        # z -> H (transfer function for FIR)
+
+        # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
+        # audio = noise_filtering(filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+
+
+        # # Check if number of grains wanted is entered, else use the original
+        # if n_grains is None:
+        #     audio = audio.reshape(-1,self.n_grains,self.l_grain)
+        # else:
+        #     audio = audio.reshape(-1,n_grains,self.l_grain)
+        # bs = audio.shape[0]
+
+        # # Check if an overlapp add window has been passed, if not use that used in encoding.
+        # if ola_windows is None:
+        #     audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
+        # else:
+        #     audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+
+        # # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+        # # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+        # # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+        # # since kernel size is l_grain, this is needed in the second dimension.
+        # if ola_folder is None:
+        #     audio_sum = self.ola_folder(audio.permute(0,2,1)).squeeze()
+        # else:
+        #     audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+
+        # # Normalise the energy values across the audio samples
+        # if self.normalize_ola:
+        #     if ola_divisor is None:
+        #         # Normalises based on number of overlapping grains used in folding per point in time.
+        #         audio_sum = audio_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
+        #     else:
+        #         audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+        # # NOTE Removed the post processing step for now
+        # # This module applies a multi-channel temporal convolution that
+        # # learns a parallel set of time-invariant FIR filters and improves
+        # # the audio quality of the assembled signal.
+        # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
+
+
+        return  
+        # return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
+
+    def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
+
+        self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
+        # audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
+
         return 
