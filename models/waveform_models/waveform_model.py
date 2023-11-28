@@ -80,6 +80,59 @@ class linear_block(nn.Module):
             self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.LayerNorm(out_size),nn.LeakyReLU(0.2))
     def forward(self, x):
         return self.block(x)
+    
+class MLP(nn.Module):
+    """
+    MLP (Multi-layer Perception). 
+
+    One layer consists of what as below:
+        - 1 Dense Layer
+        - 1 Layer Norm
+        - 1 ReLU
+
+    constructor arguments :
+        n_input : dimension of input
+        n_units : dimension of hidden unit
+        n_layer : depth of MLP (the number of layers)
+        relu : relu (default : nn.ReLU, can be changed to nn.LeakyReLU, nn.PReLU for example.)
+
+    input(x): torch.tensor w/ shape(B, ... , n_input)
+    output(x): torch.tensor w/ (B, ..., n_units)
+    """
+
+    def __init__(self, n_input, n_units, n_layer, relu=nn.ReLU, inplace=True):
+        super(MLP).__init__()
+        self.n_layer = n_layer
+        self.n_input = n_input
+        self.n_units = n_units
+        self.inplace = inplace
+
+        self.add_module(
+            f"mlp_layer1",
+            nn.Sequential(
+                nn.Linear(n_input, n_units),
+                nn.LayerNorm(normalized_shape=n_units),
+                relu(inplace=self.inplace),
+            ),
+        )
+
+        for i in range(2, n_layer+1):
+            self.add_module(
+                f"mlp_layer{i}",
+                nn.Sequential(
+                    nn.Linear(n_units, n_units),
+                    nn.LayerNorm(normalized_shape=n_units),
+                    relu(inplace=self.inplace),
+                ),
+            )
+
+    def forward(self, x):
+
+        for i in range(1, self.n_layer+1):
+            x = self.__getattr__(f"mlp_layer{i}")(x)
+
+        return x
+
 
 #############
 # Models
