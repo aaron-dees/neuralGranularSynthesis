@@ -14,69 +14,54 @@ import librosa
 import utils.dsp_components as dsp
 import utils.utilities as utils
 
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
+# Torch dataloader bits
 train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
-
 test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
 test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
+# Get grains and add windowing
 for batch, labels in test_dataloader:
     slice_kernel = torch.eye(l_grain).unsqueeze(1)
     mb_grains = F.conv1d(batch.unsqueeze(1), slice_kernel,stride=hop_size,groups=1,bias=None)
     mb_grains = mb_grains.permute(0,2,1)
     bs = mb_grains.shape[0]
+    # Add windowing
+    ola_window = signal.hann(l_grain,sym=False)
+    ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+    ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+    ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+    ola_windows = torch.nn.Parameter(ola_windows,requires_grad=False)
+    mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
     break
 
-# Save the reconstructed mel
-audio = mb_grains.reshape(bs*n_grains,l_grain)
-print("Audio Shape: ", audio.shape)
+mb_grains = mb_grains.reshape(bs*n_grains,l_grain)
 
-# Try MFCC
-# mfccs = librosa.feature.mfcc(audio.cpu().numpy(), n_mfcc=10)
-# print("MFCCs: ", mfccs.shape)
 
-# Get cepstral coefficients of single grain
-print(audio.shape)
-grain_fft = fft.rfft(audio.cpu().numpy())
-print("Grain Shape:", grain_fft.shape)
-# plt.savefig("grain_fft.png")
+# Get cepstral coefficients for each grain
+grain_fft = fft.rfft(mb_grains.cpu().numpy())
 grain_db = 20*np.log10(np.abs(grain_fft))
-inv_grain_fft = torch.from_numpy(fft.ifft(10**(grain_db/20), 2048).real)
-print("Inv Grain Shape:", inv_grain_fft.shape)
-
 cepstral_coeff = fft.dct(grain_db)
-
 # Cut of some of the shape
 cepstral_coeff[:,128:] = 0
-# cepstral_coeff[:,:] = 0
 
-print("Cepstral Shape: ", cepstral_coeff.shape)
-
-# cepstral_coeff = fft.dct(grain_fft)
-# plot dct, energy should be mostly in low end, cut out higher end, eyeball the coeff and see where to cut off, maybe around 80hz
-inv_cepstral_coeff_test = (fft.idct(cepstral_coeff))
+# Invert the cepstral coefficitents and scale from db -> power scale.
 inv_cepstral_coeff = 10**(fft.idct(cepstral_coeff) / 20)
 inv_cepstral_coeff = torch.from_numpy(inv_cepstral_coeff)
-print(inv_cepstral_coeff.shape)
 
-# Remove windowing by removing the below function altogether.
-
+# Get the impulse response from the inverted cepstral coefficients
 filter_ir = dsp.amp_to_impulse_response_w_phase(inv_cepstral_coeff, l_grain)
 
+# Generate the noise grains
 noise = utils.generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
 noise = noise.reshape(bs*n_grains, l_grain)
 
-print("Noise shape: ", noise.shape)
+# Convolve the noise and impulse response 
 audio = dsp.fft_convolve(noise, filter_ir)
-grain_fft_2 = fft.rfft(audio.cpu().numpy())
-
-# Check if number of grains wanted is entered, else use the original
 audio = audio.reshape(-1,n_grains,l_grain)
-# audio = inv_grain_fft.reshape(-1,n_grains,l_grain)
 
-# Check if an overlapp add window has been passed, if not use that used in encoding.
-
+# Apply same window as previously to new filtered noise grains
 ola_window = signal.hann(l_grain,sym=False)
 ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
 ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
@@ -84,6 +69,7 @@ ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not 
 ola_windows = ola_windows
 audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
+# Apply simply normalisation
 audio = audio/torch.max(audio)
 
 
