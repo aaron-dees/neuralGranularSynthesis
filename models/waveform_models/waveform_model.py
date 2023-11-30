@@ -598,9 +598,7 @@ class CepstralCoeffsDecoder(nn.Module):
                     hidden_size = 512,
                     bidirectional = False,
                     n_freq = 1025,
-                    n_linears=3,
                     l_grain = 2048,
-                    h_dim=512
                     ):
         super(CepstralCoeffsDecoder, self).__init__()
 
@@ -747,3 +745,86 @@ class CepstralCoeffsDecoder(nn.Module):
         # audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
 
         return audio
+    
+class CepstralCoeffsAE(nn.Module):
+
+    def __init__(self,
+                    n_grains,
+                    hop_size,
+                    normalize_ola,
+                    n_cc=30,
+                    hidden_size=512,
+                    bidirectional=False,
+                    z_dim = 128,
+                    l_grain=2048,                    
+                    # pp_chans,
+                    # pp_ker,
+                    n_mlp_units=512,
+                    n_mlp_layers = 3,
+                    relu = nn.ReLU,
+                    inplace = True,
+                    n_freq = 1025,
+                    n_linears=3,
+                    h_dim=512
+                    ):
+        super(CepstralCoeffsAE, self).__init__()
+
+        # Encoder and decoder components
+        self.Encoder = CepstralCoeffsEncoder(
+                        n_grains = n_grains,
+                        hop_size = hop_size,
+                        n_cc = n_cc,
+                        hidden_size = hidden_size,
+                        bidirectional = bidirectional,
+                        z_dim = z_dim,
+                        l_grain = l_grain,
+                    )
+        self.Decoder = CepstralCoeffsDecoder(
+                        n_grains = n_grains,
+                        hop_size = hop_size,
+                        normalize_ola = normalize_ola,
+                        # pp_chans,
+                        # pp_ker,
+                        z_dim = z_dim,
+                        n_mlp_units = n_mlp_units,
+                        n_mlp_layers = n_mlp_layers,
+                        relu = relu,
+                        inplace = inplace,
+                        hidden_size = hidden_size,
+                        bidirectional = bidirectional,
+                        n_freq = n_freq,
+                        l_grain = l_grain,
+                    )
+
+        # Number of convolutional layers
+    def encode(self, x):
+
+         # x ---> z
+        z= self.Encoder(x);
+        # z, mu, log_variance = self.Encoder(x);
+    
+        return {"z":z} 
+        # return {"z":z,"mu":mu,"logvar":log_variance} 
+
+    def decode(self, z):
+            
+        x_hat = self.Decoder(z)
+            
+        return {"audio":x_hat}
+
+    def forward(self, x, sampling=True):
+
+        # x ---> z
+        
+        z = self.Encoder(x);
+        # z, mu, log_variance = self.Encoder(x);
+        
+
+        # z ---> x_hat
+        # Note in paper they also have option passing mu into the decoder and not z
+        # if sampling:
+        x_hat = self.Decoder(z)
+        # else:
+        #     x_hat, spec = self.Decoder(mu)
+
+        return x_hat, z
