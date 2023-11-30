@@ -125,6 +125,11 @@ class MLP(nn.Module):
                     relu(inplace=self.inplace),
                 ),
             )
+        
+
+        mlp_layers = [nn.Sequential(nn.Linear(self.n_input,self.n_units),nn.LayerNorm(self.n_units),relu(inplace=self.inplace))]
+        mlp_layers += [nn.Sequential(nn.Linear(self.n_units,self.n_units),nn.LayerNorm(self.n_units),relu(inplace=self.inplace)) for i in range(1, n_layer)]
+        self.mlp_layers = nn.Sequential(*mlp_layers)
 
     def forward(self, x):
 
@@ -300,6 +305,7 @@ class WaveformDecoder(nn.Module):
         # NOTE changed this from idct_2d to idct
         # inv_filter_coeffs = (dct.idct(filter_coeffs))
         inv_filter_coeffs = 10**(dct.idct(filter_coeffs) / 20)
+
         # inv_filter_coeffs = torch.from_numpy(inv_cepstral_coeff, device=filter_coeffs.device)
 
         # try predicting only the needed coefficients.
@@ -551,25 +557,98 @@ class CepstralCoeffsEncoder(nn.Module):
 # Waveform decoder consists simply of dense layers.
 class CepstralCoeffsDecoder(nn.Module):
 
+    """
+    Decoder.
+
+    Constructor arguments: 
+        use_z : (Bool), if True, Decoder will use z as input.
+        mlp_units: 512
+        mlp_layers: 3
+        z_units: 16
+        n_harmonics: 101
+        n_freq: 65
+        gru_units: 512
+        bidirectional: False
+
+    input(dict(f0, z(optional), l)) : a dict object which contains key-values below
+        f0 : fundamental frequency for each frame. torch.tensor w/ shape(B, time)
+        z : (optional) residual information. torch.tensor w/ shape(B, time, z_units)
+        loudness : torch.tensor w/ shape(B, time)
+
+        *note dimension of z is not specified in the paper.
+
+    output : a dict object which contains key-values below
+        f0 : same as input
+        c : torch.tensor w/ shape(B, time, n_harmonics) which satisfies sum(c) == 1
+        a : torch.tensor w/ shape(B, time) which satisfies a > 0
+        H : noise filter in frequency domain. torch.tensor w/ shape(B, frame_num, filter_coeff_length)
+    """
+
     def __init__(self,
                     n_grains,
                     hop_size,
                     normalize_ola,
-                    pp_chans,
-                    pp_ker,
+                    # pp_chans,
+                    # pp_ker,
+                    z_dim,
+                    n_mlp_units=512,
+                    n_mlp_layers = 3,
+                    relu = nn.ReLU,
+                    inplace = True,
+                    hidden_size = 512,
+                    bidirectional = False,
+                    n_freq = 1025,
                     n_linears=3,
                     l_grain = 2048,
-                    h_dim=512,
-                    z_dim=128
+                    h_dim=512
                     ):
         super(CepstralCoeffsDecoder, self).__init__()
+
 
         self.n_grains = n_grains
         self.l_grain = l_grain
         self.filter_size = l_grain//2+1
         self.tar_l = int((n_grains+3)/4*l_grain)
         self.normalize_ola = normalize_ola
-        self.pp_chans = pp_chans
+        # self.pp_chans = pp_chans
+        self.z_dim = z_dim
+        self.n_mlp_units = n_mlp_units
+        self.n_mlp_layers = n_mlp_layers
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        self.n_freq = n_freq
+        self.relu = relu
+        self.inplace = inplace
+
+        # self.mlp_z = MLP(n_input=self.z_dim, n_units=self.n_mlp_units, n_layer=self.n_mlp_layers)
+        mlp_z = [nn.Sequential(nn.Linear(self.z_dim,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=self.inplace))]
+        mlp_z += [nn.Sequential(nn.Linear(self.n_mlp_units,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=self.inplace)) for i in range(1, self.n_mlp_layers)]
+        self.mlp_z = nn.Sequential(*mlp_z)
+        self.n_mlp = 1
+
+        self.gru = nn.GRU(
+            input_size = self.n_mlp * self.n_mlp_units,
+            hidden_size = self.hidden_size,
+            num_layers = 1,
+            batch_first = True,
+            bidirectional = self.bidirectional,
+        )
+
+        # self.mlp_gru = MLP(
+        #     n_input=self.hidden_size * 2 if self.bidirectional else self.hidden_size,
+        #     n_units=self.n_mlp_units,
+        #     n_layer=self.n_mlp_layers,
+        #     inplace=True,
+        # )
+        mlp_gru = [nn.Sequential(nn.Linear((self.hidden_size * 2 if self.bidirectional else self.hidden_size),self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=True))]
+        mlp_gru += [nn.Sequential(nn.Linear(self.n_mlp_units,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=True)) for i in range(1, self.n_mlp_layers)]
+        self.mlp_gru = nn.Sequential(*mlp_gru)
+
+        # TODO Try having final dense lapyre map straight to the transfer function for FIR, or try have it predicting CCs
+        # NOTE DDSP maps straight to transfer function for FIR fitlers
+        self.dense = nn.Linear(self.n_mlp_units, self.n_freq)
+
+        self.filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
 
         # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
         # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
@@ -595,60 +674,76 @@ class CepstralCoeffsDecoder(nn.Module):
             self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
         
         # TODO Look at NGS paper, and ref paper as to how and why this works.
-        self.post_pro = nn.Sequential(nn.Conv1d(pp_chans, 1, pp_ker, padding=pp_ker//2),nn.Softsign())
+        # self.post_pro = nn.Sequential(nn.Conv1d(pp_chans, 1, pp_ker, padding=pp_ker//2),nn.Softsign())
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
-        # z -> H (transfer function for FIR)
+        # Step 1 - MLP
+        h = self.mlp_z(z)
+
+        # Step 2 - RNN
+        h, _= self.gru(h)
+
+        # Step 3 - MLP
+        h = self.mlp_gru(h)
+
+        # Step 4 - Dense Layer
+        h = self.dense(h)
+
+        h = mod_sigmoid(h)
+
+        # Step 5 - Noise Filtering
+
+        # Reshape for noise filtering - TODO Look if this is necesary
+        h = h.reshape(h.shape[0]*h.shape[1],h.shape[2])
 
         # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-        # audio = noise_filtering(filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+        audio = noise_filtering(h, self.filter_window, self.n_grains, self.l_grain)
+
+        # Check if number of grains wanted is entered, else use the original
+        if n_grains is None:
+            audio = audio.reshape(-1,self.n_grains,self.l_grain)
+        else:
+            audio = audio.reshape(-1,n_grains,self.l_grain)
+        bs = audio.shape[0]
+
+        # Check if an overlapp add window has been passed, if not use that used in encoding.
+        if ola_windows is None:
+            audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
+        else:
+            audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
 
-        # # Check if number of grains wanted is entered, else use the original
-        # if n_grains is None:
-        #     audio = audio.reshape(-1,self.n_grains,self.l_grain)
-        # else:
-        #     audio = audio.reshape(-1,n_grains,self.l_grain)
-        # bs = audio.shape[0]
+        # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+        # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+        # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+        # since kernel size is l_grain, this is needed in the second dimension.
+        if ola_folder is None:
+            audio_sum = self.ola_folder(audio.permute(0,2,1)).squeeze()
+        else:
+            audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
 
-        # # Check if an overlapp add window has been passed, if not use that used in encoding.
-        # if ola_windows is None:
-        #     audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
-        # else:
-        #     audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+        # Normalise the energy values across the audio samples
+        if self.normalize_ola:
+            if ola_divisor is None:
+                # Normalises based on number of overlapping grains used in folding per point in time.
+                audio_sum = audio_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
+            else:
+                audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
-
-        # # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-        # # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-        # # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-        # # since kernel size is l_grain, this is needed in the second dimension.
-        # if ola_folder is None:
-        #     audio_sum = self.ola_folder(audio.permute(0,2,1)).squeeze()
-        # else:
-        #     audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
-
-        # # Normalise the energy values across the audio samples
-        # if self.normalize_ola:
-        #     if ola_divisor is None:
-        #         # Normalises based on number of overlapping grains used in folding per point in time.
-        #         audio_sum = audio_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
-        #     else:
-        #         audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
-
-        # # NOTE Removed the post processing step for now
-        # # This module applies a multi-channel temporal convolution that
-        # # learns a parallel set of time-invariant FIR filters and improves
-        # # the audio quality of the assembled signal.
+        # NOTE Removed the post processing step for now
+        # This module applies a multi-channel temporal convolution that
+        # learns a parallel set of time-invariant FIR filters and improves
+        # the audio quality of the assembled signal.
         # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
 
-        return  
+        return audio_sum
         # return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
 
     def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
 
-        self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
+        audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
         # audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
 
-        return 
+        return audio
