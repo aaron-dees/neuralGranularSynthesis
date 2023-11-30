@@ -27,6 +27,7 @@ for batch, labels in test_dataloader:
     mb_grains = F.conv1d(batch.unsqueeze(1), slice_kernel,stride=hop_size,groups=1,bias=None)
     mb_grains = mb_grains.permute(0,2,1)
     bs = mb_grains.shape[0]
+    print(mb_grains.shape)
     # Add windowing
     ola_window = signal.hann(l_grain,sym=False)
     ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
@@ -80,6 +81,7 @@ audio = audio/torch.max(audio)
 ola_folder = torch.nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
 audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
 
+
 # Normalise the energy values across the audio samples
 if NORMALIZE_OLA:
     # Normalises based on number of overlapping grains used in folding per point in time.
@@ -88,6 +90,8 @@ if NORMALIZE_OLA:
     ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
     ola_divisor = ola_divisor
     audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+else:
+    audio_sum = audio_sum.unsqueeze(0)
 
 #for testing
 for i in range(audio_sum.shape[0]):
