@@ -690,8 +690,20 @@ class CepstralCoeffsDecoder(nn.Module):
 
         h = mod_sigmoid(h)
 
-        # Step 5 - Noise Filtering
+        # return the spectral shape 
+        # CC part
+        # filter_coeffs = h
+        # print("Filter shape: ", filter_coeffs.shape)
+        # filter_coeffs[:, 128:] = 0.0
 
+        # # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
+        # # NOTE is there a torch implementation of this, bit of a bottleneck if not?
+        # # NOTE issue with gradient flowwing back
+        # # NOTE changed this from idct_2d to idct
+        # # inv_filter_coeffs = (dct.idct(filter_coeffs))
+        # inv_filter_coeffs = 10**(dct.idct(filter_coeffs) / 20)
+
+        # Step 5 - Noise Filtering
         # Reshape for noise filtering - TODO Look if this is necesary
         h = h.reshape(h.shape[0]*h.shape[1],h.shape[2])
 

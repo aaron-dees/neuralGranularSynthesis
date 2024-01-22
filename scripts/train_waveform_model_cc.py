@@ -27,13 +27,13 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_waveformVAE_CCFilters_GPU",
+        project="SeaWaves_ccVAE_GPU",
         name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
         config={
         "learning_rate": LEARNING_RATE,
-        "architecture": "Waveform_VAE",
+        "architecture": "cc_VAE",
         "dataset": "UrbanSound8K",
         "epochs": EPOCHS,
         "latent size": LATENT_SIZE,
@@ -52,20 +52,7 @@ if __name__ == "__main__":
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = WaveformVAE(n_grains = n_grains,
-                    hop_size=hop_size,
-                    normalize_ola=NORMALIZE_OLA,
-                    pp_chans=POSTPROC_CHANNELS,
-                    pp_ker=POSTPROC_KER_SIZE,
-                    kernel_size=9,
-                    channels=128,
-                    stride=4,
-                    n_convs=3,
-                    n_linears=3,
-                    num_samples=l_grain,
-                    l_grain=l_grain,
-                    h_dim=512,
-                    z_dim=LATENT_SIZE)
+    model = CepstralCoeffsAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA)
     
     model.to(DEVICE)
 
@@ -153,21 +140,29 @@ if __name__ == "__main__":
                 waveform = Variable(waveform).to(DEVICE)                       # we are just intrested in just images
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
-                x_hat, z, mu, log_variance, spec = model(waveform)                 # forward pass: compute predicted outputs 
+                x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
+                # x_hat, z, mu, log_variance, spec = model(waveform)                 # forward pass: compute predicted outputs 
+
+                # print(x_hat.sum())
 
                 # Compute loss
-                spec_loss = spec_dist(x_hat, waveform)
-                if beta > 0:
-                    kld_loss = compute_kld(mu, log_variance) * beta
-                else:
-                    kld_loss = 0.0
-                # Notes this won't work when using grains, need to look into this
-                if ENV_DIST > 0:
-                    env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
-                else:
-                    env_loss = 0.0
 
-                loss = kld_loss + spec_loss + env_loss
+                spec_loss = spec_dist(x_hat, waveform)
+                # if beta > 0:
+                #     kld_loss = compute_kld(mu, log_variance) * beta
+                # else:
+                #     kld_loss = 0.0
+                # # Notes this won't work when using grains, need to look into this
+                # if ENV_DIST > 0:
+                #     env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
+                # else:
+                #     env_loss = 0.0
+
+                kld_loss = 0
+                env_loss = 0
+
+                # loss = kld_loss + spec_loss + env_loss
+                loss = spec_loss
 
                 # Compute gradients and update weights
                 loss.backward()                         # backward pass
@@ -202,21 +197,27 @@ if __name__ == "__main__":
                 for data in val_dataloader:
                     waveform, label = data 
                     waveform = waveform.to(DEVICE)
-                    x_hat, z, mu, log_variance, spec = model(waveform)
+                    x_hat, z = model(waveform)
+                    # x_hat, z, mu, log_variance, spec = model(waveform)
 
                     # Compute loss
                     spec_loss = spec_dist(x_hat, waveform)
-                    if beta > 0:
-                        kld_loss = compute_kld(mu, log_variance) * beta
-                    else:
-                        kld_loss = 0.0
-                    # Notes this won't work when using grains, need to look into this
-                    if ENV_DIST > 0:
-                        env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
-                    else:
-                        env_loss = 0.0
+                    # if beta > 0:
+                    #     kld_loss = compute_kld(mu, log_variance) * beta
+                    # else:
+                    #     kld_loss = 0.0
+                    # # Notes this won't work when using grains, need to look into this
+                    # if ENV_DIST > 0:
+                    #     env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
+                    # else:
+                    #     env_loss = 0.0
 
-                    loss = kld_loss + spec_loss + env_loss
+                    # For VAE
+                    kld_loss = 0
+                    env_loss = 0
+
+                    # loss = kld_loss + spec_loss + env_loss
+                    loss = spec_loss 
 
                     running_val_loss += loss
                     running_kl_val_loss += kld_loss
@@ -311,6 +312,14 @@ if __name__ == "__main__":
             waveforms = waveforms.to(DEVICE)
 
             x_hat, z = model(waveforms)                     # get sample outputs
+
+            spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
+            spec_loss = spec_dist(x_hat, waveforms)
+
+            print(x_hat.shape)
+            print(waveforms.shape)
+
+            print("Spectral Loss: ", spec_loss)
 
             # print_spectral_shape(waveforms[0,:], spec[0,:,:].cpu().numpy(), hop_size, l_grain)
 

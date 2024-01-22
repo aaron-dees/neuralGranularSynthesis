@@ -64,7 +64,9 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     # Old noise functions
     # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
 
-    audio = fft_convolve(noise, filter_ir)
+    # audio = fft_convolve(noise, filter_ir)
+    audio = fft_convolve_no_pad(noise, filter_ir)
+
     # Transform noise and impulse response filters into fourier domain
     # S_noise = torch.fft.rfft(noise,dim=1)
     # S_filter = torch.fft.rfft(filter_ir,dim=1)
