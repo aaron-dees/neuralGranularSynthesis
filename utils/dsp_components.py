@@ -81,7 +81,6 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
 
 def fft_convolve(signal, kernel):
 
-
     signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
     kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
 
@@ -99,6 +98,13 @@ def fft_convolve_2(signal, kernel):
 
     output = torch.fft.rfft(signal) * torch.fft.rfft(kernel)
     output = output[..., output.shape[-1] // 2:]
+
+
+    return output
+
+def fft_convolve_no_pad(signal, kernel):
+
+    output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
 
 
     return output

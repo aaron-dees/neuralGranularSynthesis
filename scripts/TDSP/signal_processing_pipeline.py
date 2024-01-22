@@ -194,8 +194,11 @@ print(inv_cepstral_coeff.shape)
 # filter_ir = amp_to_impulse_response_w_phase(inv_mel_grains, l_grain)
 filter_ir = amp_to_impulse_response_w_phase(inv_grain_fft, l_grain)
 
+# TODO Does the generated noise need to be windowed ??
 noise = generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
 noise = noise.reshape(bs*n_grains, l_grain)
+
+print("Noise shape: ", noise.shape())
 
 audio = fft_convolve(noise, filter_ir)
 grain_fft_2 = fft.rfft(audio.cpu().numpy())

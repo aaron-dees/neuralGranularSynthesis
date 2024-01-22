@@ -162,6 +162,8 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
     tar_l = int(((n_grains+3)/4)*l_grain)
 
     noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+    # TEST using a slightly differently scaled noise
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.4-0.2
 
     hop_size = int(hop_ratio*l_grain)
 
