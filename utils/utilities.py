@@ -163,7 +163,7 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
 
     noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
     # TEST using a slightly differently scaled noise
-    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.4-0.2
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.6-0.3
 
     hop_size = int(hop_ratio*l_grain)
 
@@ -173,6 +173,108 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
         ending_point = starting_point+l_grain
         tmp_noise = noise[:, starting_point:ending_point].unsqueeze(1)
         new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
+
+    return new_noise
+
+# TODO Try generating all the niose and splitting it into the grains after using (hop_ratio * ((l_grain/2) + 1 )), or something like that?.
+def generate_noise_grains_freq(batch_size, n_grains, l_grain, dtype, device, hop_ratio=0.25):
+
+    # tar_l = int((((n_grains+3)/4)*l_grain) / 2) + 1
+
+    # noise_fft = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+    # noise_fft = torch.rand(batch_size, tar_l, dtype=torch.cfloat, device=device)*2-1
+    # print(noise_fft.real.min())
+    # print(noise_fft.real.max())
+    # plt.plot(noise_fft[0,513:1026])
+    # # plt.plot(torch.rand(513))
+    # # plt.plot(inv_cepstral_coeff[7])
+    # # plt.plot(noise[7])
+    # plt.savefig("test_freq.png")
+    # print("Done printing")
+
+    # print("Noise shape: ", torch.fft.fft(noise).shape)
+
+    # noise = torch.fft.irfft(noise_fft)
+
+    # print(torch.fft.rfft(noise).real.min())
+    # print(torch.fft.rfft(noise).real.max())
+
+    # plt.plot(torch.fft.rfft(noise)[0,513:1026])
+    # # plt.plot(torch.rand(513))
+    # # plt.plot(inv_cepstral_coeff[7])
+    # plt.plot(noise[0, 513:1026])
+    # plt.savefig("test_freq.png")
+    # print("Done printing")
+
+    # print("Noise Shape: ", noise.shape)
+
+    # TEST using a slightly differently scaled noise
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.6-0.3
+
+    hop_size = int(hop_ratio*l_grain)
+
+    # new_noise = noise[:, 0:l_grain].unsqueeze(1)
+    # print(new_noise.shape)
+    new_noise_fft = (torch.rand(batch_size, int(l_grain/2)+1, dtype=torch.cfloat, device=device)*2-1).unsqueeze(1)
+    # print(new_noise_fft.shape)
+    for i in range(1, n_grains):  
+        # starting_point = i*hop_size
+        # ending_point = starting_point+l_grain
+        # tmp_noise = noise[:, starting_point:ending_point].unsqueeze(1)
+        # new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
+        tmp_fft = (torch.rand(batch_size, int(l_grain/2)+1, dtype=torch.cfloat, device=device)*2-1).unsqueeze(1)
+        new_noise_fft = torch.cat((new_noise_fft, tmp_fft), dim=1)
+
+    new_noise = torch.fft.irfft(new_noise_fft)
+    print(new_noise.shape)
+
+    # print(new_noise.shape)
+    # print(new_noise_fft.shape)
+    # # plt.plot(torch.fft.rfft(noise)[0,513:1026])
+    # # plt.plot(torch.rand(513))
+    # plt.plot(new_noise_fft[0,7])
+    # # plt.plot(noise[0, 513:1026])
+    # plt.savefig("test_freq.png")
+    # print("Done printing")
+
+    # print(torch.fft.rfft(new_noise).real.min())
+    # print(torch.fft.rfft(new_noise).real.max())
+    
+    return new_noise
+
+def generate_noise_grains_wNorm(batch_size, n_grains, l_grain, dtype, device, hop_ratio=0.25):
+
+    tar_l = int(((n_grains+3)/4)*l_grain)
+
+    noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+    # TEST using a slightly differently scaled noise
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.6-0.3
+
+    # Normalise the fft of the signal (only normalising the real part)
+    
+
+    # print("White Noise Max (freq): ", noise_fft.real.max())
+    # print("White Noise Min (freq): ", noise_fft.real.min())
+    # noise = torch.fft.irfft(noise_fft)
+    # print("White Noise Max (freq): ", torch.fft.rfft(noise).real.max())
+    # print("White Noise Min (freq): ", torch.fft.rfft(noise).real.min())
+    # print(torch.fft.rfft(new_noise).shape)
+
+    hop_size = int(hop_ratio*l_grain)
+
+    new_noise = noise[:, 0:l_grain].unsqueeze(1)
+    for i in range(1, n_grains):  
+        starting_point = i*hop_size
+        ending_point = starting_point+l_grain
+        tmp_noise = noise[:, starting_point:ending_point].unsqueeze(1)
+        new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
+
+    # Normalise the grains
+    noise_fft = torch.fft.rfft(new_noise)
+    noise_fft = noise_fft - noise_fft.real.min(dim=2, keepdim=True).values 
+    noise_fft = (noise_fft / noise_fft.real.max(dim=2, keepdim=True).values) * 2 - 1
+
+    new_noise = torch.fft.irfft(noise_fft)
 
     return new_noise
 
@@ -249,12 +351,12 @@ def filter_spectral_shape(waveform, hop_size, l_grain, n_grains, tar_l):
     inv_cepstral_coeff = 10**(dct.idct(cepstral_coeff) / 20)
 
     # filter_ir = dsp.amp_to_impulse_response_w_phase(torch.from_numpy(inv_cepstral_coeff), l_grain)
-    filter_ir = dsp.amp_to_impulse_response_w_phase(inv_cepstral_coeff, l_grain)
+    filter_ir = dsp.amp_to_impulse_response(inv_cepstral_coeff, l_grain)
 
     noise = generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
     noise = noise.reshape(bs*n_grains, l_grain)
 
-    audio = dsp.fft_convolve(noise, filter_ir)
+    audio = dsp.fft_convolve_no_pad(noise, filter_ir)
 
     # Check if number of grains wanted is entered, else use the original
     audio = audio.reshape(-1,n_grains,l_grain)

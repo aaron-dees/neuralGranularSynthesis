@@ -655,7 +655,6 @@ class CepstralCoeffsDecoder(nn.Module):
         ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
         ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
         self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
-        print(self.ola_windows.shape)
 
         # Folder
         # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size

@@ -20,14 +20,13 @@ from datetime import datetime
 
 print("--- Device: ", DEVICE)
 # print("--- Venv: ", sys.prefix)
-print(LATENT_SIZE)
 
 # start a new wandb run to track this script
 if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_ccVAE_GPU",
+        project="SeaWaves_ccVAE_CPU_Local",
         name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -48,11 +47,12 @@ if __name__ == "__main__":
 
     train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
+    print("-----Dataset Loaded-----")
     # Test dataloader
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = CepstralCoeffsAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA)
+    model = CepstralCoeffsAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, l_grain=l_grain)
     
     model.to(DEVICE)
 
@@ -91,7 +91,7 @@ if __name__ == "__main__":
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch']
             train_loss = checkpoint['loss']
-            accum_iter = checkpoint['accum_iter']
+            # accum_iter = checkpoint['accum_iter']
             beta = checkpoint['beta']
             beta_step_val = checkpoint['beta_step_val']
             beta_step_size = checkpoint['beta_step_size']
@@ -102,6 +102,8 @@ if __name__ == "__main__":
             print(f'Epoch: {start_epoch}')
             print(f'Loss: {train_loss}')
 
+        # TEST
+        accum_iter = 100
         # Model in training mode
 
         # Set spectral distances
@@ -259,6 +261,11 @@ if __name__ == "__main__":
                     # Save as latest also
                     torch.save({
                         'epoch': epoch+1,
+                        'accum_iter': accum_iter,
+                        'beta': beta,
+                        'beta_step_val': beta_step_val,
+                        'beta_step_size': beta_step_size,
+                        'warmup_start': warmup_start,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_loss,
@@ -345,18 +352,18 @@ if __name__ == "__main__":
         #             print("Average Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data/x_hat[i].shape[0])
         #             print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
 
-        #     if SAVE_RECONSTRUCTIONS:
-        #         for i, signal in enumerate(x_hat):
-        #             # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
-        #             spec_loss = spec_dist(x_hat[i], waveforms[i])
-        #             # Check the energy differences
-        #             # print("Saving ", labels[i][:-4])
-        #             print("Saving ", i)
-        #             print("Loss: ", spec_loss)
-        #             # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
-        #             # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-        #             torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
-        #             torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
-        #             # print(f'{classes[labels[i]]} saved')
+            if SAVE_RECONSTRUCTIONS:
+                for i, signal in enumerate(x_hat):
+                    # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
+                    spec_loss = spec_dist(x_hat[i], waveforms[i])
+                    # Check the energy differences
+                    # print("Saving ", labels[i][:-4])
+                    print("Saving ", i)
+                    print("Loss: ", spec_loss)
+                    # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
+                    # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                    # print(f'{classes[labels[i]]} saved')
 
 
