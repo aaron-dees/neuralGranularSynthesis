@@ -1,7 +1,8 @@
 import torch
 import math
 import matplotlib.pyplot as plt
-from utils.utilities import generate_noise_grains, generate_noise_grains_stft
+# from utils.utilities import generate_noise_grains, generate_noise_grains_stft
+import utils.utilities as utils
 
 ##################
 #   Modified Sigmoid
@@ -52,22 +53,20 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
     # # convolve with noise signal
     # # Create noise, why doe we multiply by 2 and subtract 1 here
 
-    print("Filter coeff shape: ", filter_coeffs.shape)
-
     filter_ir = amp_to_impulse_response(filter_coeffs, l_grain)
 
     bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
     
-    noise = generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=0.25)
+    noise = utils.generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=0.25)
     noise = noise.reshape(bs*n_grains, l_grain)
 
     
     # Old noise functions
     # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
 
-    print(filter_ir.dtype)
-    print(noise.dtype)
-    audio = fft_convolve(noise, filter_ir)
+    # audio = fft_convolve(noise, filter_ir)
+    audio = fft_convolve_no_pad(noise, filter_ir)
+
     # Transform noise and impulse response filters into fourier domain
     # S_noise = torch.fft.rfft(noise,dim=1)
     # S_filter = torch.fft.rfft(filter_ir,dim=1)
@@ -84,11 +83,10 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
 
 def fft_convolve(signal, kernel):
 
-    # note is it wrong to be using the rfft here.
-
     signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
     kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
 
+    # NOTE Should I really be using ifft here since we want to keep the phase of the noise. 
     output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
     output = output[..., output.shape[-1] // 2:]
 
@@ -102,6 +100,13 @@ def fft_convolve_2(signal, kernel):
 
     output = torch.fft.rfft(signal) * torch.fft.rfft(kernel)
     output = output[..., output.shape[-1] // 2:]
+
+
+    return output
+
+def fft_convolve_no_pad(signal, kernel):
+
+    output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
 
 
     return output
@@ -124,6 +129,7 @@ def amp_to_impulse_response(amp, target_size):
 
     return amp
 
+# When padding amp with complex component already in it.
 def amp_to_impulse_response_w_phase(amp, target_size):
 
     amp = torch.fft.irfft(amp)

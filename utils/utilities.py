@@ -5,8 +5,15 @@ import seaborn as sns
 import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
-import torch.functional as F
+from torch.nn import functional as F
+import torchaudio
 import librosa
+from scipy import fft, signal
+import torch_dct as dct
+# from dsp_components import amp_to_impulse_response_w_phase
+import utils.dsp_components as dsp
+from scripts.configs.hyper_parameters_waveform import NORMALIZE_OLA, RECONSTRUCTION_SAVE_DIR, SAMPLE_RATE
+
 
 # Sample from a gaussian distribution
 def sample_from_distribution(mu, log_variance):
@@ -155,6 +162,8 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
     tar_l = int(((n_grains+3)/4)*l_grain)
 
     noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+    # TEST using a slightly differently scaled noise
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.6-0.3
 
     hop_size = int(hop_ratio*l_grain)
 
@@ -167,6 +176,108 @@ def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_rati
 
     return new_noise
 
+# TODO Try generating all the niose and splitting it into the grains after using (hop_ratio * ((l_grain/2) + 1 )), or something like that?.
+def generate_noise_grains_freq(batch_size, n_grains, l_grain, dtype, device, hop_ratio=0.25):
+
+    # tar_l = int((((n_grains+3)/4)*l_grain) / 2) + 1
+
+    # noise_fft = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+    # noise_fft = torch.rand(batch_size, tar_l, dtype=torch.cfloat, device=device)*2-1
+    # print(noise_fft.real.min())
+    # print(noise_fft.real.max())
+    # plt.plot(noise_fft[0,513:1026])
+    # # plt.plot(torch.rand(513))
+    # # plt.plot(inv_cepstral_coeff[7])
+    # # plt.plot(noise[7])
+    # plt.savefig("test_freq.png")
+    # print("Done printing")
+
+    # print("Noise shape: ", torch.fft.fft(noise).shape)
+
+    # noise = torch.fft.irfft(noise_fft)
+
+    # print(torch.fft.rfft(noise).real.min())
+    # print(torch.fft.rfft(noise).real.max())
+
+    # plt.plot(torch.fft.rfft(noise)[0,513:1026])
+    # # plt.plot(torch.rand(513))
+    # # plt.plot(inv_cepstral_coeff[7])
+    # plt.plot(noise[0, 513:1026])
+    # plt.savefig("test_freq.png")
+    # print("Done printing")
+
+    # print("Noise Shape: ", noise.shape)
+
+    # TEST using a slightly differently scaled noise
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.6-0.3
+
+    hop_size = int(hop_ratio*l_grain)
+
+    # new_noise = noise[:, 0:l_grain].unsqueeze(1)
+    # print(new_noise.shape)
+    new_noise_fft = (torch.rand(batch_size, int(l_grain/2)+1, dtype=torch.cfloat, device=device)*2-1).unsqueeze(1)
+    # print(new_noise_fft.shape)
+    for i in range(1, n_grains):  
+        # starting_point = i*hop_size
+        # ending_point = starting_point+l_grain
+        # tmp_noise = noise[:, starting_point:ending_point].unsqueeze(1)
+        # new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
+        tmp_fft = (torch.rand(batch_size, int(l_grain/2)+1, dtype=torch.cfloat, device=device)*2-1).unsqueeze(1)
+        new_noise_fft = torch.cat((new_noise_fft, tmp_fft), dim=1)
+
+    new_noise = torch.fft.irfft(new_noise_fft)
+    print(new_noise.shape)
+
+    # print(new_noise.shape)
+    # print(new_noise_fft.shape)
+    # # plt.plot(torch.fft.rfft(noise)[0,513:1026])
+    # # plt.plot(torch.rand(513))
+    # plt.plot(new_noise_fft[0,7])
+    # # plt.plot(noise[0, 513:1026])
+    # plt.savefig("test_freq.png")
+    # print("Done printing")
+
+    # print(torch.fft.rfft(new_noise).real.min())
+    # print(torch.fft.rfft(new_noise).real.max())
+    
+    return new_noise
+
+def generate_noise_grains_wNorm(batch_size, n_grains, l_grain, dtype, device, hop_ratio=0.25):
+
+    tar_l = int(((n_grains+3)/4)*l_grain)
+
+    noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
+    # TEST using a slightly differently scaled noise
+    # noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*0.6-0.3
+
+    # Normalise the fft of the signal (only normalising the real part)
+    
+
+    # print("White Noise Max (freq): ", noise_fft.real.max())
+    # print("White Noise Min (freq): ", noise_fft.real.min())
+    # noise = torch.fft.irfft(noise_fft)
+    # print("White Noise Max (freq): ", torch.fft.rfft(noise).real.max())
+    # print("White Noise Min (freq): ", torch.fft.rfft(noise).real.min())
+    # print(torch.fft.rfft(new_noise).shape)
+
+    hop_size = int(hop_ratio*l_grain)
+
+    new_noise = noise[:, 0:l_grain].unsqueeze(1)
+    for i in range(1, n_grains):  
+        starting_point = i*hop_size
+        ending_point = starting_point+l_grain
+        tmp_noise = noise[:, starting_point:ending_point].unsqueeze(1)
+        new_noise = torch.cat((new_noise, tmp_noise), dim = 1)
+
+    # Normalise the grains
+    noise_fft = torch.fft.rfft(new_noise)
+    noise_fft = noise_fft - noise_fft.real.min(dim=2, keepdim=True).values 
+    noise_fft = (noise_fft / noise_fft.real.max(dim=2, keepdim=True).values) * 2 - 1
+
+    new_noise = torch.fft.irfft(noise_fft)
+
+    return new_noise
+
 def generate_noise_grains_stft(batch_size, tar_l, dtype, device, hop_size):
 
     noise = torch.rand(batch_size, tar_l, dtype=dtype, device=device)*2-1
@@ -175,5 +286,112 @@ def generate_noise_grains_stft(batch_size, tar_l, dtype, device, hop_size):
     noise_stft = torch.from_numpy(noise_stft)
 
     return noise_stft
+
+def print_spectral_shape(waveform, learnt_spec_shape, hop_size, l_grain):
+
+    print("-----Saving Spectral Shape-----")
+
+    slice_kernel = torch.eye(l_grain).unsqueeze(1)
+    mb_grains = F.conv1d(waveform.unsqueeze(0).unsqueeze(0).cpu(), slice_kernel,stride=hop_size,groups=1,bias=None)
+    mb_grains = mb_grains.permute(0,2,1).squeeze()
+
+    grain_fft = fft.rfft(mb_grains.cpu().numpy())
+
+    grain_db = 20*np.log10(np.abs(grain_fft))
+
+    plt.plot(grain_db[0])
+
+    # Note transposing for librosa
+    cepstral_coeff = fft.dct(grain_db)
+
+    cepstral_coeff[:, 128:] = 0
+
+    inv_cepstral_coeff = fft.idct(cepstral_coeff)
+    plt.plot(inv_cepstral_coeff[0])
+
+    plt.plot(learnt_spec_shape[0])
+
+    plt.savefig("spectral_shape.png")
+
+def filter_spectral_shape(waveform, hop_size, l_grain, n_grains, tar_l):
+
+    print("-----Noise filtering Spectral Shape-----")
+    # Set BS equal to 1
+    bs = 1
+
+    slice_kernel = torch.eye(l_grain).unsqueeze(1)
+    mb_grains = F.conv1d(waveform.unsqueeze(0).unsqueeze(0).cpu(), slice_kernel,stride=hop_size,groups=1,bias=None)
+    mb_grains = mb_grains.permute(0,2,1)
+
+    ola_window = signal.hann(l_grain,sym=False)
+    ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+    ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+    ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+    ola_windows = torch.nn.Parameter(ola_windows,requires_grad=False)
+    mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+
+    grain_fft = fft.rfft(mb_grains.cpu().numpy())
+    grain_fft_torch = torch.fft.rfft(mb_grains)
+    # grain_db = 20*np.log10(np.abs(grain_fft))
+    grain_db = 20*np.log10(np.abs(grain_fft))
+    grain_db_torch = 20*torch.log10(torch.abs(grain_fft_torch))
+
+    # Note transposing for librosa
+    cepstral_coeff = fft.dct(grain_db)
+    cepstral_coeff_torch = dct.dct(grain_db_torch)
+
+    cepstral_coeff[:, :, 128:] = 0
+    cepstral_coeff_torch[:, :, 128:] = 0
+
+    # Use torch and dct for now
+    cepstral_coeff = cepstral_coeff_torch
+
+    # inv_cepstral_coeff = 10**(fft.idct(cepstral_coeff) / 20)
+    inv_cepstral_coeff = 10**(dct.idct(cepstral_coeff) / 20)
+
+    # filter_ir = dsp.amp_to_impulse_response_w_phase(torch.from_numpy(inv_cepstral_coeff), l_grain)
+    filter_ir = dsp.amp_to_impulse_response(inv_cepstral_coeff, l_grain)
+
+    noise = generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
+    noise = noise.reshape(bs*n_grains, l_grain)
+
+    audio = dsp.fft_convolve_no_pad(noise, filter_ir)
+
+    # Check if number of grains wanted is entered, else use the original
+    audio = audio.reshape(-1,n_grains,l_grain)
+    # audio = inv_grain_fft.reshape(-1,n_grains,l_grain)
+
+    # Check if an overlapp add window has been passed, if not use that used in encoding.
+
+    ola_window = signal.hann(l_grain,sym=False)
+    ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+    ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+    ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+    ola_windows = ola_windows
+    audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+    audio = audio/torch.max(audio)
+
+
+    # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+    # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+    # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+    # since kernel size is l_grain, this is needed in the second dimension.
+    ola_folder = torch.nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
+    audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+
+    # Normalise the energy values across the audio samples
+    if NORMALIZE_OLA:
+        # Normalises based on number of overlapping grains used in folding per point in time.
+        unfolder = torch.nn.Unfold((l_grain,1),stride=(hop_size,1))
+        input_ones = torch.ones(1,1,tar_l,1)
+        ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+        ola_divisor = ola_divisor
+        audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+    #for testing
+    for i in range(audio_sum.shape[0]):
+        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/cc_filtering_{i}.wav', audio_sum[i].unsqueeze(0).cpu(), SAMPLE_RATE)
         
     
