@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import librosa
 
-from utils.dsp_components import generate_noise_grains, amp_to_impulse_response, amp_to_impulse_response_w_phase, fft_convolve
+from utils.dsp_components import amp_to_impulse_response, amp_to_impulse_response_w_phase, fft_convolve
+from utils.utilities import generate_noise_grains
 
 torch.manual_seed(0)
 
