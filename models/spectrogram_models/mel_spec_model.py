@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 
 from utils.utilities import sample_from_distribution, generate_noise_grains
-from scripts.configs.hyper_parameters_waveform import BATCH_SIZE, DEVICE, LATENT_SIZE
+from scripts.configs.hyper_parameters_waveform import BATCH_SIZE 
 from utils.dsp_components import noise_filtering, mod_sigmoid
 
 
@@ -275,6 +275,7 @@ class MelSpecVAE(nn.Module):
                     n_grains,
                     hop_size,
                     normalize_ola,
+
                     n_cc=30,
                     hidden_size=512,
                     bidirectional=False,
@@ -366,8 +367,13 @@ class MelSpecConvEncoder(nn.Module):
                     hidden_size=512,
                     bidirectional=False,
                     z_dim = 128,
+                    conv_filters = (512, 256, 128, 64, 32),
+                    conv_kernels = (3, 3, 3, 3, 3),
+                    conv_strides = (2, 2, 2, 2, (2,1)),
+                    conv_paddings = (3//2, 3//2, 3//2, 3//2, 3//2),
                     l_grain=2048,
-                    n_mels = 128
+                    n_mels = 128,
+                    relu = nn.ReLU
                     ):
         super(MelSpecConvEncoder, self).__init__()
 
@@ -385,54 +391,37 @@ class MelSpecConvEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.hop_size = hop_size
         self.flatten_size = self.n_mels * self.n_grains
+        self.n_conv_layers = len(conv_filters)
+        self.conv_filters = conv_filters
+        self.relu = relu
 
-        # Conv Layers
-        self.Conv_E_1 = nn.Conv2d(1, 512, stride=2, kernel_size=3, padding=3//2)
-        self.Conv_E_2= nn.Conv2d(512, 256, stride=2, kernel_size=3, padding=3//2)
-        self.Conv_E_3= nn.Conv2d(256, 128, stride=2, kernel_size=3, padding=3//2)
-        self.Conv_E_4= nn.Conv2d(128, 64, stride=2, kernel_size=3, padding=3//2)
-        self.Conv_E_5= nn.Conv2d(64, 32, stride=(2,1), kernel_size=3, padding=3//2)
+        self.conv_layers = []
+        for i in range(self.n_conv_layers):
+            if (i == 0):
+                self.conv_layers.append(nn.Conv2d(1, conv_filters[i], stride=conv_strides[i], kernel_size=conv_kernels[i], padding=conv_paddings[i]))
+                self.conv_layers.append(self.relu())
+                self.conv_layers.append(nn.BatchNorm2d(conv_filters[i]))
+
+            else:
+                self.conv_layers.append(nn.Conv2d(conv_filters[i-1], conv_filters[i], stride=conv_strides[i], kernel_size=conv_kernels[i], padding=conv_paddings[i]))
+                self.conv_layers.append(self.relu())
+                self.conv_layers.append(nn.BatchNorm2d(conv_filters[i]))
+        
+        self.Conv_Layers_E = nn.Sequential(*self.conv_layers)
+
         # Dense layer based on the striding used in conv layers
-        self.Dense_E_1 = nn.Linear(32 * int(256/pow(2,5)) * math.ceil(800/pow(2,4)), LATENT_SIZE)
+        self.Dense_E_1 = nn.Linear(self.conv_filters[-1] * int(self.n_mels/pow(2,self.n_conv_layers)) * math.ceil(self.n_grains/pow(2,self.n_conv_layers-1)), self.z_dim)
 
         self.Flat_E_1 = nn.Flatten()
-
-        self.Norm_E_1 = nn.BatchNorm2d(512)
-        self.Norm_E_2 = nn.BatchNorm2d(256)
-        self.Norm_E_3 = nn.BatchNorm2d(128)
-        self.Norm_E_4 = nn.BatchNorm2d(64)
-        self.Norm_E_5 = nn.BatchNorm2d(32)
-
-
-        self.Act_E = nn.ReLU()
 
     def encode(self, x):
 
         # Unsqueeze the last layer to allow convolutions, trating spectrogram as greyscale image
         x = x.unsqueeze(1)
 
-        # Conv layer 1
-        Conv_E_1 = self.Conv_E_1(x)
-        Act_E_1 = self.Act_E(Conv_E_1)
-        Norm_E_1 = self.Norm_E_1(Act_E_1)
-        # Conv layer 2
-        Conv_E_2 = self.Conv_E_2(Norm_E_1)
-        Act_E_2 = self.Act_E(Conv_E_2)
-        Norm_E_2 = self.Norm_E_2(Act_E_2)
-        # Conv layer 3 
-        Conv_E_3 = self.Conv_E_3(Norm_E_2)
-        Act_E_3 = self.Act_E(Conv_E_3)
-        Norm_E_3 = self.Norm_E_3(Act_E_3)
-        # Conv layer 4
-        Conv_E_4 = self.Conv_E_4(Norm_E_3)
-        Act_E_4 = self.Act_E(Conv_E_4)
-        Norm_E_4 = self.Norm_E_4(Act_E_4)
-        # Conv layer 5
-        Conv_E_5 = self.Conv_E_5(Norm_E_4)
-        Act_E_5 = self.Act_E(Conv_E_5)
-        Norm_E_5 = self.Norm_E_5(Act_E_5)
-        # Dense layer for mu and log variance
-        Flat_E_1 = self.Flat_E_1(Norm_E_5)
+        Conv_E_1 = self.Conv_Layers_E(x)
+
+        Flat_E_1 = self.Flat_E_1(Conv_E_1)
         mu = self.Dense_E_1(Flat_E_1)
         logvar = self.Dense_E_1(Flat_E_1)
 
@@ -456,6 +445,10 @@ class MelSpecConvDecoder(nn.Module):
                     # pp_chans,
                     # pp_ker,
                     z_dim,
+                    conv_filters = (512, 256, 128, 64, 32),
+                    conv_kernels = (3, 3, 3, 3, 3),
+                    conv_strides = (2, 2, 2, 2, (2,1)),
+                    conv_paddings = (3//2, 3//2, 3//2, 3//2, 3//2),
                     n_mlp_units=512,
                     n_mlp_layers = 3,
                     relu = nn.ReLU,
@@ -484,51 +477,40 @@ class MelSpecConvDecoder(nn.Module):
         self.relu = relu
         self.inplace = inplace
         self.hop_size = hop_size
+        self.n_conv_layers = len(conv_filters)
+        self.conv_filters = conv_filters
 
-        self.Dense_D_1 = nn.Linear(LATENT_SIZE, 32 * int(256/pow(2,5)) * math.ceil(800/pow(2,4)))
-        self.ConvT_D_1 = nn.ConvTranspose2d(32, 32, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
-        # Note the need to add output padding here for tranposed dimensions to match
-        self.ConvT_D_2 = nn.ConvTranspose2d(32, 64, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
-        self.ConvT_D_3 = nn.ConvTranspose2d(64, 128, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
-        self.ConvT_D_4 = nn.ConvTranspose2d(128, 256, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
-        self.ConvT_D_5 = nn.ConvTranspose2d(256, 1, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
-        
-        self.Norm_D_1 = nn.BatchNorm2d(32)
-        self.Norm_D_2 = nn.BatchNorm2d(64)
-        self.Norm_D_3 = nn.BatchNorm2d(128)
-        self.Norm_D_4 = nn.BatchNorm2d(256)
 
-        self.Act_D_1 = nn.ReLU()
-        self.Act_D_2 = nn.Sigmoid()
+        self.conv_layers = []
+        for i in reversed(range(self.n_conv_layers)):
+            if (i == self.n_conv_layers-1):
+                # Note the use of slightly different padding on the first
+                self.conv_layers.append(nn.ConvTranspose2d(conv_filters[i], conv_filters[i], stride=conv_strides[i], kernel_size=conv_kernels[i], padding=conv_paddings[i], output_padding = (1,0)))
+                self.conv_layers.append(self.relu())
+                self.conv_layers.append(nn.BatchNorm2d(conv_filters[i]))
 
+            elif (i == 0):
+                self.conv_layers.append(nn.ConvTranspose2d(conv_filters[i+1], 1, stride=conv_strides[i], kernel_size=conv_kernels[i], padding=conv_paddings[i], output_padding = 1))
+                self.conv_layers.append(nn.Sigmoid())
+                
+            else:
+                self.conv_layers.append(nn.ConvTranspose2d(conv_filters[i+1], conv_filters[i], stride=conv_strides[i], kernel_size=conv_kernels[i], padding=conv_paddings[i], output_padding=1))
+                self.conv_layers.append(self.relu())
+                self.conv_layers.append(nn.BatchNorm2d(conv_filters[i]))
+
+        self.ConvT_Layers_D = nn.Sequential(*self.conv_layers)
+
+        self.Dense_D_1 = nn.Linear(self.z_dim, self.conv_filters[-1] * int(self.n_mels/pow(2,self.n_conv_layers)) * math.ceil(self.n_grains/pow(2,self.n_conv_layers-1)))
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
         # Dense Layer
         Dense_D_1 = self.Dense_D_1(z)
 
-        # TODO: Find a nicer way of doing this programatically
         # Reshape based on the number striding used in encoder
-        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, int(256/pow(2,5)), math.ceil(800/pow(2,4))))
-        # Conv layer 1
-        Conv_D_1 = self.ConvT_D_1(Reshape_D_1)
-        Act_D_1 = self.Act_D_1(Conv_D_1)
-        Norm_D_1 = self.Norm_D_1(Act_D_1)
-        # Conv layer 2
-        Conv_D_2 = self.ConvT_D_2(Norm_D_1)
-        Act_D_2 = self.Act_D_1(Conv_D_2)
-        Norm_D_2 = self.Norm_D_2(Act_D_2)
-        # Conv layer 3
-        Conv_D_3 = self.ConvT_D_3(Norm_D_2)
-        Act_D_3 = self.Act_D_1(Conv_D_3)
-        Norm_D_3 = self.Norm_D_3(Act_D_3)
-        # Conv layer 4
-        Conv_D_4 = self.ConvT_D_4(Norm_D_3)
-        Act_D_4 = self.Act_D_1(Conv_D_4)
-        Norm_D_4 = self.Norm_D_4(Act_D_4)
-        # Conv layer 5 (output)
-        Conv_D_5= self.ConvT_D_5(Norm_D_4)
-        x_hat = self.Act_D_2(Conv_D_5)
+        Reshape_D_1 = torch.reshape(Dense_D_1, (Dense_D_1.shape[0], self.conv_filters[-1], int(self.n_mels/pow(2,self.n_conv_layers)), math.ceil(self.n_grains/pow(2,self.n_conv_layers-1))))
+        # Conv layers
+        x_hat = self.ConvT_Layers_D(Reshape_D_1)
 
         # Remove the additional column
         x_hat = x_hat.reshape(x_hat.shape[0], x_hat.shape[2], x_hat.shape[3])
@@ -547,6 +529,10 @@ class MelSpecConvVAE(nn.Module):
                     n_grains,
                     hop_size,
                     normalize_ola,
+                    conv_filters = (512, 256, 128, 64, 32),
+                    conv_kernels = (3, 3, 3, 3, 3),
+                    conv_strides = (2, 2, 2, 2, (2,1)),
+                    conv_paddings = (3//2, 3//2, 3//2, 3//2, 3//2),
                     n_cc=30,
                     hidden_size=512,
                     bidirectional=False,
@@ -569,17 +555,26 @@ class MelSpecConvVAE(nn.Module):
         self.Encoder = MelSpecConvEncoder(
                         n_grains = n_grains,
                         hop_size = hop_size,
+                        conv_filters = conv_filters,
+                        conv_kernels = conv_kernels,
+                        conv_strides = conv_strides,
+                        conv_paddings = conv_paddings,
                         n_cc = n_cc,
                         hidden_size = hidden_size,
                         bidirectional = bidirectional,
                         z_dim = z_dim,
                         l_grain = l_grain,
                         n_mels=n_mels,
+                        relu=relu
                     )
         self.Decoder = MelSpecConvDecoder(
                         n_grains = n_grains,
                         hop_size = hop_size,
                         normalize_ola = normalize_ola,
+                        conv_filters = conv_filters,
+                        conv_kernels = conv_kernels,
+                        conv_strides = conv_strides,
+                        conv_paddings = conv_paddings,
                         # pp_chans,
                         # pp_ker,
                         z_dim = z_dim,

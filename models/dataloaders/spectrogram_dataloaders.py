@@ -264,18 +264,28 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     
     return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes
 
-def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,n_mels=128,num_workers=2):
+# See if I can make the stft windows a power of 2 for the spectrogram.
+def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,n_mels=128,num_workers=2, n_stft_frames=800):
 
     print("-------- Creating Dataloaders --------")
     
     # Calculate the hop size based on the ratio
     hop_size = int(hop_ratio*l_grain)
     tar_l = int(tar_l*sr)
+    # print("windows size?: ",  (tar_l + l_grain)//(l_grain - 3*l_grain//4) )
+   
 
     # Cut the target length to that which alligns with grains size
     print("--- Cropping sample lengths from/to:\t",tar_l,tar_l//l_grain*l_grain)
-    tar_l = int(tar_l//l_grain*l_grain)
+    # tar_l = int(tar_l//l_grain*l_grain)
 
+    # TODO Hacky way to ensure that the number of stft frames is equally divisible the conv layers required.
+    tar_l = int(((((n_stft_frames+3)/4)) * l_grain) - l_grain)
+    # print("windows size: ",  4*((tar_l+l_grain)//l_grain)-3)
+    # print("windows size: ",  (((((800+3)/4)) * l_grain) - l_grain))
+    # 800 frames
+
+    # ((((800/4) + 3) * l_grain) - l_grain)
     classes = sorted(classes)
     train_datasets = []
     test_datasets = []
@@ -317,15 +327,12 @@ def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_
             #     data /= np.max(np.abs(data))
             #     data *= 0.9
 
-            print("Data Min: ", data.min())
-            print("Data Max: ", data.max())
 
             # Get the power spec
-            mel_spec = librosa.feature.melspectrogram(data, sr = 44100, n_fft = l_grain, hop_length=hop_size, n_mels=n_mels)
+            mel_spec = librosa.feature.melspectrogram(y=data, sr = samplerate, n_fft = l_grain, hop_length=hop_size, n_mels=n_mels)
         
             # Normalise amplitude between 0 and 1
-            # pow_spec = (pow_spec - pow_spec.min()) / (pow_spec.max() - pow_spec.min())
-
+            mel_spec = (mel_spec - mel_spec.min()) / (mel_spec.max() - mel_spec.min())
             
             audios.append(mel_spec)
             labels.append(i)
@@ -351,4 +358,4 @@ def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_
 
     print("-------- Done Creating Dataloaders --------")
     
-    return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes
+    return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes, samplerate

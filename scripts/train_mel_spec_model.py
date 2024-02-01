@@ -1,9 +1,9 @@
 import sys
 sys.path.append('../')
 
-from models.spectrogram_models.mel_spec_model import MelSpecVAE
+from models.spectrogram_models.mel_spec_model import MelSpecConvVAE
 from models.dataloaders.spectrogram_dataloaders import make_audio_dataloaders_mel_spec
-from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
+from models.loss_functions import calc_combined_loss, calc_kl_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
 from scripts.configs.hyper_parameters_mel_spec_model import *
 from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
 
@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torchaudio
 from torch.autograd import Variable
+from torchsummary import summary
 import pickle
 import time
 import wandb
@@ -46,17 +47,16 @@ if WANDB:
 if __name__ == "__main__":
 
 
-    train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders_mel_spec(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,n_mels=NUM_MELS,num_workers=0)
-    print(tar_l)
-    print(n_grains)
-    print(l_grain)
+    train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes, samplerate = make_audio_dataloaders_mel_spec(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,n_mels=NUM_MELS, n_stft_frames=NUM_STFT_FRAMES, num_workers=0)
 
     print("-----Dataset Loaded-----")
     # Test dataloader
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = MelSpecVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, l_grain=l_grain, n_mels=NUM_MELS)
+    model = MelSpecConvVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, l_grain=l_grain, n_mels=NUM_MELS, conv_filters=CONV_FILTERS, conv_kernels=CONV_KERNELS, conv_paddings=CONV_PADDINGS, conv_strides=CONV_STRIDES, relu=RELU)
+
+    summary(model, (256, 800))
     
     model.to(DEVICE)
 
@@ -67,11 +67,6 @@ if __name__ == "__main__":
     # train_set, val_set = torch.utils.data.random_split(usd_waveforms, split)
     # train_dataloader = torch.utils.data.DataLoader(train_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
     # val_dataloader = torch.utils.data.DataLoader(val_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
-
-    # print("Sizes")
-    # print(len(train_dataloader))
-    # print(len(val_dataloader))
-
 
     if TRAIN:
 
@@ -156,7 +151,8 @@ if __name__ == "__main__":
                 # spec_loss = spec_dist(x_hat, waveform)
                 spec_loss = calc_reconstruction_loss(waveform, x_hat)
                 if beta > 0:
-                    kld_loss = compute_kld(mu, log_variance) * beta
+                    kld_loss = calc_kl_loss(mu, log_variance) * beta
+                    # kld_loss = compute_kld(mu, log_variance) * beta
                 else:
                     kld_loss = 0.0
                 # Notes this won't work when using grains, need to look into this
@@ -214,7 +210,8 @@ if __name__ == "__main__":
                     spec_loss = calc_reconstruction_loss(waveform, x_hat)
                     
                     if beta > 0:
-                        kld_loss = compute_kld(mu, log_variance) * beta
+                        kld_loss = calc_kl_loss(mu, log_variance) * beta
+                        # kld_loss = compute_kld(mu, log_variance) * beta
                     else:
                         kld_loss = 0.0
                     # Notes this won't work when using grains, need to look into this
@@ -242,6 +239,17 @@ if __name__ == "__main__":
 
             end = time.time()
 
+            if SAVE_RECONSTRUCTIONS:
+                if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
+                    for i, signal in enumerate(x_hat):
+                        # spec_loss = spec_dist(x_hat[i], waveforms[i])
+                        audio_recon = librosa.feature.inverse.mel_to_audio(x_hat[i].cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+                        spec_loss = calc_reconstruction_loss(x_hat[i], waveform[i])
+                        # Check the energy differences
+                        print("Saving ", i)
+                        print("Loss: ", spec_loss)
+                        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/reconsstruction_recon_{i}_epoch{epoch}_{spec_loss}.wav', torch.from_numpy(audio_recon).unsqueeze(0).cpu(), SAMPLE_RATE)
+
             # wandb logging
             if WANDB:
                 wandb.log({"kl_loss": kl_loss, "spec_loss": train_spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
@@ -252,6 +260,7 @@ if __name__ == "__main__":
             '\tTraining Loss: {:.4f}'.format(train_loss),
             '\tValidations Loss: {:.4f}'.format(val_loss),
             '\tTime: {:.2f}s'.format(end-start))
+
 
             if SAVE_CHECKPOINT:
                 if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
@@ -301,7 +310,7 @@ if __name__ == "__main__":
         print("-------- Inference Mode --------")
 
 
-        model = MelSpecVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA,  l_grain=l_grain, n_mels=NUM_MELS)
+        # model = MelSpecConvVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA,  l_grain=l_grain, n_mels=NUM_MELS)
 
 
         ###########
@@ -326,25 +335,16 @@ if __name__ == "__main__":
 
             waveforms = waveforms.to(DEVICE)
 
-            print(waveforms.shape)
-
             x_hat, z, mu, logvar = model(waveforms)                     # get sample outputs
 
-            audio_recon = librosa.feature.inverse.mel_to_audio(x_hat.cpu().numpy(), sr = 44100, n_fft = l_grain, hop_length=hop_size)
-            waveform_recon = librosa.feature.inverse.mel_to_audio(waveforms.cpu().numpy(), sr = 44100, n_fft = l_grain, hop_length=hop_size)
+            audio_recon = librosa.feature.inverse.mel_to_audio(x_hat.cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+            waveform_recon = librosa.feature.inverse.mel_to_audio(waveforms.cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
             # transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = hop_size, power=2)
             # audio_recon = transform(x_hat)
             # waveform_recon = transform(waveforms)
-            print(waveform_recon.shape)
-
-            print("Output: ",x_hat.shape)
-            print("Output: ",x_hat.shape)
 
             # spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
             # spec_loss = spec_dist(audio_recon, waveform_recon)
-
-            print(x_hat.shape)
-            print(waveforms.shape)
 
             # print("Spectral Loss: ", spec_loss)
 
