@@ -17,6 +17,7 @@ from scipy import fft
 import torch_dct as dct
 import torchaudio
 import librosa
+import math
 
 # ------------
 # Waveform Model Components
@@ -183,10 +184,11 @@ class MelSpecEncoder(nn.Module):
 
     def encode(self, x):
 
+        # Unsqueeze the last layer to allow convolutions, trating spectrogram as greyscale image
+        # x = x.unsqueeze(-1)
+
         #Flatten
         z = self.flatten(x)
-
-        print
 
         #Dense Layers
         mu = self.mu(z)
@@ -350,13 +352,12 @@ class MelSpecVAE(nn.Module):
 
         return x_hat, z, mu, log_variance
 
-
-###########
-# Old Model
-###########
+#########
+# Deep Convolutional based Model
+#########
 
 # Waveform encoder is a little similar to wavenet architecture with some changes
-class CepstralCoeffsEncoder(nn.Module):
+class MelSpecConvEncoder(nn.Module):
 
     def __init__(self,
                     n_grains,
@@ -366,146 +367,87 @@ class CepstralCoeffsEncoder(nn.Module):
                     bidirectional=False,
                     z_dim = 128,
                     l_grain=2048,
+                    n_mels = 128
                     ):
-        super(CepstralCoeffsEncoder, self).__init__()
+        super(MelSpecConvEncoder, self).__init__()
 
-
+        print("Num grains: ", n_grains)
         self.n_grains = n_grains
         self.l_grain = l_grain
         # Set the target length based on hardcodded equation (need to understand why this eq is choosen)
         self.tar_l = int((n_grains+3)/4*l_grain)
-
+        # self.fft_size = (l_grain // 2) + 1
+        self.n_mels = n_mels
         self.n_cc = n_cc 
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
         self.z_dim = z_dim
         self.hidden_size = hidden_size
-
-        # define the slice_kernel, this is used in convolution to expand out the grains.
-        # TODO look into this a little more, what is eye, identity matrix?
-        self.slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
-
         self.hop_size = hop_size
+        self.flatten_size = self.n_mels * self.n_grains
 
-        # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
-        # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
-        ola_window = signal.hann(l_grain,sym=False)
-        ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
-        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
-        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-        self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+        # Conv Layers
+        self.Conv_E_1 = nn.Conv2d(1, 512, stride=2, kernel_size=3, padding=3//2)
+        self.Conv_E_2= nn.Conv2d(512, 256, stride=2, kernel_size=3, padding=3//2)
+        self.Conv_E_3= nn.Conv2d(256, 128, stride=2, kernel_size=3, padding=3//2)
+        self.Conv_E_4= nn.Conv2d(128, 64, stride=2, kernel_size=3, padding=3//2)
+        self.Conv_E_5= nn.Conv2d(64, 32, stride=(2,1), kernel_size=3, padding=3//2)
+        # Dense layer based on the striding used in conv layers
+        self.Dense_E_1 = nn.Linear(32 * int(256/pow(2,5)) * math.ceil(800/pow(2,4)), LATENT_SIZE)
 
+        self.Flat_E_1 = nn.Flatten()
 
-        # self.flatten_size = int(channels*l_grain/(stride**n_convs))
-        # self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
-        # self.mu = nn.Linear(z_dim,z_dim)
-        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
-
-        # Normalise with learnable scale and shift
-        # self.norm = nn.InstanceNorm1d(self.n_cc, affine=True)
-        self.norm = nn.InstanceNorm1d(513, affine=True)
-
-        self.gru = nn.GRU(
-            # input_size=self.n_cc,
-            input_size=513,
-            hidden_size=self.hidden_size,
-            num_layers=1,
-            batch_first=True,
-            bidirectional=self.bidirectional
-        )
-
-        self.dense = nn.Linear(self.hidden_size * 2 if self.bidirectional else self.hidden_size, self.z_dim)
-
-        # Note this for an AE, try with VAE, for mu and logvar
-        # self.mu = nn.Linear(z_dim,z_dim)
-        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        self.Norm_E_1 = nn.BatchNorm2d(512)
+        self.Norm_E_2 = nn.BatchNorm2d(256)
+        self.Norm_E_3 = nn.BatchNorm2d(128)
+        self.Norm_E_4 = nn.BatchNorm2d(64)
+        self.Norm_E_5 = nn.BatchNorm2d(32)
 
 
+        self.Act_E = nn.ReLU()
 
     def encode(self, x):
 
-        hann_window = torch.hann_window(1024)
-        test_stft = torch.stft(x, n_fft = 1024,  hop_length=self.hop_size, window=hann_window, return_complex = True)
-        # print("STFT Shape: ", test_stft.shape)
-        # print(torch.abs(test_stft).sum())
-        # grain_db = 20*torch.log10(torch.abs(test_stft))
-        # print(grain_db.sum())
-        # cepstral_coeff = dct.dct(grain_db)
-        # cepstral_coeff = torch.from_numpy(cepstral_coeff)
-        # print("CC Shape 1: ", cepstral_coeff.shape)
-        # cepstral_coeff = cepstral_coeff.permute(0, 2, 1)
-        # # cepstral_coeff[:, :, 513:] = 0
-        # print("CC Shape 2: ", cepstral_coeff.shape)
-        # cepstral_coeff = cepstral_coeff.permute(0, 2, 1)
-        # print("CC Shape 3: ", cepstral_coeff.shape)
-        # cepstral_coeff = cepstral_coeff.cpu().numpy()
-        # print(dct.idct(cepstral_coeff).sum())
-        # inv_cepstral_coeff = 10**(dct.idct(cepstral_coeff) / 20)
-        # print(inv_cepstral_coeff.sum())
-        # transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = self.hop_size, power=2)
-        # recon_audio = transform(torch.abs(test_stft)**2)
-        # # recon_audio = torch.from_numpy(librosa.griffinlim(inv_cepstral_coeff, n_fft = 1024, hop_length = self.hop_size))
-        # # torchaudio.save(f'recon_audio.wav', recon_audio, 44100)
+        # Unsqueeze the last layer to allow convolutions, trating spectrogram as greyscale image
+        x = x.unsqueeze(1)
 
+        # Conv layer 1
+        Conv_E_1 = self.Conv_E_1(x)
+        Act_E_1 = self.Act_E(Conv_E_1)
+        Norm_E_1 = self.Norm_E_1(Act_E_1)
+        # Conv layer 2
+        Conv_E_2 = self.Conv_E_2(Norm_E_1)
+        Act_E_2 = self.Act_E(Conv_E_2)
+        Norm_E_2 = self.Norm_E_2(Act_E_2)
+        # Conv layer 3 
+        Conv_E_3 = self.Conv_E_3(Norm_E_2)
+        Act_E_3 = self.Act_E(Conv_E_3)
+        Norm_E_3 = self.Norm_E_3(Act_E_3)
+        # Conv layer 4
+        Conv_E_4 = self.Conv_E_4(Norm_E_3)
+        Act_E_4 = self.Act_E(Conv_E_4)
+        Norm_E_4 = self.Norm_E_4(Act_E_4)
+        # Conv layer 5
+        Conv_E_5 = self.Conv_E_5(Norm_E_4)
+        Act_E_5 = self.Act_E(Conv_E_5)
+        Norm_E_5 = self.Norm_E_5(Act_E_5)
+        # Dense layer for mu and log variance
+        Flat_E_1 = self.Flat_E_1(Norm_E_5)
+        mu = self.Dense_E_1(Flat_E_1)
+        logvar = self.Dense_E_1(Flat_E_1)
 
-
-        # Step 2 - Normalize
-        z = self.norm(torch.abs(test_stft)**2)
-        # permute to [bs, grains, cc]
-        z = z.permute(0, 2, 1)
-
-        # Step 3 - RNN
-        z, _ = self.gru(z)
-
-
-        # Step 4 - dense layer
-        z = self.dense(z)
-
-        # Step 5 - mu and log var layers
-        # mu = self.mu(z)
-        # logvar = self.logvar(z)
-        # z = sample_from_distribution(mu, logvar)
+        z = sample_from_distribution(mu, logvar)
  
-        return z
-        # return z, mu, logvar
+        return z, mu, logvar
 
     def forward(self, audio):
 
-        # z, mu, logvar = self.encode(audio)
-        z= self.encode(audio)
+        z, mu, logvar = self.encode(audio)
 
-        # return z, mu, logvar
-        return z
+        return z, mu, logvar
 
 # Waveform decoder consists simply of dense layers.
-class CepstralCoeffsDecoder(nn.Module):
-
-    """
-    Decoder.
-
-    Constructor arguments: 
-        use_z : (Bool), if True, Decoder will use z as input.
-        mlp_units: 512
-        mlp_layers: 3
-        z_units: 16
-        n_harmonics: 101
-        n_freq: 65
-        gru_units: 512
-        bidirectional: False
-
-    input(dict(f0, z(optional), l)) : a dict object which contains key-values below
-        f0 : fundamental frequency for each frame. torch.tensor w/ shape(B, time)
-        z : (optional) residual information. torch.tensor w/ shape(B, time, z_units)
-        loudness : torch.tensor w/ shape(B, time)
-
-        *note dimension of z is not specified in the paper.
-
-    output : a dict object which contains key-values below
-        f0 : same as input
-        c : torch.tensor w/ shape(B, time, n_harmonics) which satisfies sum(c) == 1
-        a : torch.tensor w/ shape(B, time) which satisfies a > 0
-        H : noise filter in frequency domain. torch.tensor w/ shape(B, frame_num, filter_coeff_length)
-    """
+class MelSpecConvDecoder(nn.Module):
 
     def __init__(self,
                     n_grains,
@@ -522,13 +464,14 @@ class CepstralCoeffsDecoder(nn.Module):
                     bidirectional = False,
                     n_freq = 513,
                     l_grain = 1024,
+                    n_mels = 128,
                     ):
-        super(CepstralCoeffsDecoder, self).__init__()
+        super(MelSpecConvDecoder, self).__init__()
 
 
         self.n_grains = n_grains
         self.l_grain = l_grain
-        self.filter_size = l_grain//2+1
+        self.n_mels = n_mels
         self.tar_l = int((n_grains+3)/4*l_grain)
         self.normalize_ola = normalize_ola
         # self.pp_chans = pp_chans
@@ -542,94 +485,63 @@ class CepstralCoeffsDecoder(nn.Module):
         self.inplace = inplace
         self.hop_size = hop_size
 
-        # self.mlp_z = MLP(n_input=self.z_dim, n_units=self.n_mlp_units, n_layer=self.n_mlp_layers)
-        mlp_z = [nn.Sequential(nn.Linear(self.z_dim,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=self.inplace))]
-        mlp_z += [nn.Sequential(nn.Linear(self.n_mlp_units,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=self.inplace)) for i in range(1, self.n_mlp_layers)]
-        self.mlp_z = nn.Sequential(*mlp_z)
-        self.n_mlp = 1
-
-        self.gru = nn.GRU(
-            input_size = self.n_mlp * self.n_mlp_units,
-            hidden_size = self.hidden_size,
-            num_layers = 1,
-            batch_first = True,
-            bidirectional = self.bidirectional,
-        )
-
-        # self.mlp_gru = MLP(
-        #     n_input=self.hidden_size * 2 if self.bidirectional else self.hidden_size,
-        #     n_units=self.n_mlp_units,
-        #     n_layer=self.n_mlp_layers,
-        #     inplace=True,
-        # )
-        mlp_gru = [nn.Sequential(nn.Linear((self.hidden_size * 2 if self.bidirectional else self.hidden_size),self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=True))]
-        mlp_gru += [nn.Sequential(nn.Linear(self.n_mlp_units,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=True)) for i in range(1, self.n_mlp_layers)]
-        self.mlp_gru = nn.Sequential(*mlp_gru)
-
-        # TODO Try having final dense lapyre map straight to the transfer function for FIR, or try have it predicting CCs
-        # NOTE DDSP maps straight to transfer function for FIR fitlers
-        self.dense = nn.Linear(self.n_mlp_units, self.n_freq)
-
-        self.filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
-
-        # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
-        # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
-        ola_window = signal.hann(l_grain,sym=False)
-        ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
-        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
-        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-        self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
-
-        # Folder
-        # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
-        # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-        self.ola_folder = nn.Fold((self.tar_l,1),(l_grain,1),stride=(hop_size,1))
-
-        # Normalize OLA
-        # This attempts to normalize the energy by dividing by the number of 
-        # overlapping grains used when folding to get each point in times energy (amplitude).
-        if normalize_ola:
-            unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-            input_ones = torch.ones(1,1,self.tar_l,1)
-            ola_divisor = self.ola_folder(unfolder(input_ones)).squeeze()
-            self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
+        self.Dense_D_1 = nn.Linear(LATENT_SIZE, 32 * int(256/pow(2,5)) * math.ceil(800/pow(2,4)))
+        self.ConvT_D_1 = nn.ConvTranspose2d(32, 32, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
+        # Note the need to add output padding here for tranposed dimensions to match
+        self.ConvT_D_2 = nn.ConvTranspose2d(32, 64, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
+        self.ConvT_D_3 = nn.ConvTranspose2d(64, 128, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
+        self.ConvT_D_4 = nn.ConvTranspose2d(128, 256, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
+        self.ConvT_D_5 = nn.ConvTranspose2d(256, 1, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
         
-        # TODO Look at NGS paper, and ref paper as to how and why this works.
-        # self.post_pro = nn.Sequential(nn.Conv1d(pp_chans, 1, pp_ker, padding=pp_ker//2),nn.Softsign())
+        self.Norm_D_1 = nn.BatchNorm2d(32)
+        self.Norm_D_2 = nn.BatchNorm2d(64)
+        self.Norm_D_3 = nn.BatchNorm2d(128)
+        self.Norm_D_4 = nn.BatchNorm2d(256)
+
+        self.Act_D_1 = nn.ReLU()
+        self.Act_D_2 = nn.Sigmoid()
+
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
-        # Step 1 - MLP
-        h = self.mlp_z(z)
+        # Dense Layer
+        Dense_D_1 = self.Dense_D_1(z)
 
-        # Step 2 - RNN
-        h, _= self.gru(h)
+        # TODO: Find a nicer way of doing this programatically
+        # Reshape based on the number striding used in encoder
+        Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, int(256/pow(2,5)), math.ceil(800/pow(2,4))))
+        # Conv layer 1
+        Conv_D_1 = self.ConvT_D_1(Reshape_D_1)
+        Act_D_1 = self.Act_D_1(Conv_D_1)
+        Norm_D_1 = self.Norm_D_1(Act_D_1)
+        # Conv layer 2
+        Conv_D_2 = self.ConvT_D_2(Norm_D_1)
+        Act_D_2 = self.Act_D_1(Conv_D_2)
+        Norm_D_2 = self.Norm_D_2(Act_D_2)
+        # Conv layer 3
+        Conv_D_3 = self.ConvT_D_3(Norm_D_2)
+        Act_D_3 = self.Act_D_1(Conv_D_3)
+        Norm_D_3 = self.Norm_D_3(Act_D_3)
+        # Conv layer 4
+        Conv_D_4 = self.ConvT_D_4(Norm_D_3)
+        Act_D_4 = self.Act_D_1(Conv_D_4)
+        Norm_D_4 = self.Norm_D_4(Act_D_4)
+        # Conv layer 5 (output)
+        Conv_D_5= self.ConvT_D_5(Norm_D_4)
+        x_hat = self.Act_D_2(Conv_D_5)
 
-        # Step 3 - MLP
-        h = self.mlp_gru(h)
+        # Remove the additional column
+        x_hat = x_hat.reshape(x_hat.shape[0], x_hat.shape[2], x_hat.shape[3])
 
-        # Step 4 - Dense Layer
-        h = self.dense(h)
-
-        h = mod_sigmoid(h)
-
-        # reshape int
-        h = h.permute(0, 2, 1)
-
-        transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = self.hop_size, power=2)
-        audio_sum = transform(h)
-
-        return audio_sum
-        # return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
+        return x_hat
 
     def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
 
         audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
-        # audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
 
         return audio
     
-class CepstralCoeffsAE(nn.Module):
+class MelSpecConvVAE(nn.Module):
 
     def __init__(self,
                     n_grains,
@@ -648,12 +560,13 @@ class CepstralCoeffsAE(nn.Module):
                     inplace = True,
                     n_freq = 513,
                     n_linears=3,
-                    h_dim=512
+                    h_dim=512,
+                    n_mels = 128
                     ):
-        super(CepstralCoeffsAE, self).__init__()
+        super(MelSpecConvVAE, self).__init__()
 
         # Encoder and decoder components
-        self.Encoder = CepstralCoeffsEncoder(
+        self.Encoder = MelSpecConvEncoder(
                         n_grains = n_grains,
                         hop_size = hop_size,
                         n_cc = n_cc,
@@ -661,8 +574,9 @@ class CepstralCoeffsAE(nn.Module):
                         bidirectional = bidirectional,
                         z_dim = z_dim,
                         l_grain = l_grain,
+                        n_mels=n_mels,
                     )
-        self.Decoder = CepstralCoeffsDecoder(
+        self.Decoder = MelSpecConvDecoder(
                         n_grains = n_grains,
                         hop_size = hop_size,
                         normalize_ola = normalize_ola,
@@ -677,17 +591,18 @@ class CepstralCoeffsAE(nn.Module):
                         bidirectional = bidirectional,
                         n_freq = n_freq,
                         l_grain = l_grain,
+                        n_mels=n_mels
                     )
 
         # Number of convolutional layers
     def encode(self, x):
 
          # x ---> z
-        z= self.Encoder(x);
-        # z, mu, log_variance = self.Encoder(x);
+        # z= self.Encoder(x);
+        z, mu, log_variance = self.Encoder(x);
     
-        return {"z":z} 
-        # return {"z":z,"mu":mu,"logvar":log_variance} 
+        # return {"z":z} 
+        return {"z":z,"mu":mu,"logvar":log_variance} 
 
     def decode(self, z):
             
@@ -698,16 +613,13 @@ class CepstralCoeffsAE(nn.Module):
     def forward(self, x, sampling=True):
 
         # x ---> z
+        z, mu, log_variance = self.Encoder(x);
         
-        z = self.Encoder(x);
-        # z, mu, log_variance = self.Encoder(x);
-        
-
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
-        # if sampling:
-        x_hat = self.Decoder(z)
-        # else:
-        #     x_hat, spec = self.Decoder(mu)
+        if sampling:
+            x_hat = self.Decoder(z)
+        else:
+            x_hat= self.Decoder(mu)
 
-        return x_hat, z
+        return x_hat, z, mu, log_variance
