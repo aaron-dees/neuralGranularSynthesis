@@ -19,6 +19,9 @@ import torchaudio
 import librosa
 import math
 
+# Look at implementing something like, conv2d and deconv2d as found in https://github.com/marcoppasini/MelGAN-VC/blob/master/MelGAN_VC.ipynb
+# Note the use of 
+
 # ------------
 # Waveform Model Components
 # ------------

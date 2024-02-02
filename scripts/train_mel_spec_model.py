@@ -79,7 +79,7 @@ if __name__ == "__main__":
         ########### 
 
         optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
-        lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.5, total_iters=10000)
+        lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=10000)
         # decayRate = 0.99
         # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=decayRate)
 
