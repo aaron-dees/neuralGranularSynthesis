@@ -79,6 +79,11 @@ if __name__ == "__main__":
         ########### 
 
         optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
+        lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.5, total_iters=10000)
+        # decayRate = 0.99
+        # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=decayRate)
+
+
 
         start_epoch = 0
         accum_iter = 0
@@ -187,7 +192,11 @@ if __name__ == "__main__":
                 running_env_loss += env_loss
 
                 accum_iter+=1
-                
+
+            # Decay the learning rate
+            lr_scheduler.step()
+            new_lr = optimizer.param_groups[0]["lr"]
+
             # get avg training statistics 
             train_loss = running_train_loss/len(train_dataloader) # does len(fsdd_dataloader) return the number of batches ?
             kl_loss = running_kl_loss/len(train_dataloader)
@@ -257,11 +266,13 @@ if __name__ == "__main__":
                     for i, signal in enumerate(x_hat):
                         # spec_loss = spec_dist(x_hat[i], waveforms[i])
                         audio_recon = librosa.feature.inverse.mel_to_audio(x_hat[i].cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+                        waveform_recon = librosa.feature.inverse.mel_to_audio((waveform[i]).cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
                         spec_loss = calc_reconstruction_loss(x_hat[i], waveform[i])
                         # Check the energy differences
                         print("Saving ", i)
                         print("Loss: ", spec_loss)
                         torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/reconsstruction_recon_{i}_epoch{epoch}_{spec_loss}.wav', torch.from_numpy(audio_recon).unsqueeze(0).cpu(), SAMPLE_RATE)
+                        torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/mel_{i}.wav", torch.from_numpy(waveform_recon).unsqueeze(0).cpu(), SAMPLE_RATE)
 
             # wandb logging
             if WANDB:
@@ -269,7 +280,7 @@ if __name__ == "__main__":
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
-            '\t Beta: {:.5f}'.format(beta),
+            '\t LR: {:.5f}'.format(new_lr),
             '\tTraining Loss: {:.4f}'.format(train_loss),
             '\tValidations Loss: {:.4f}'.format(val_loss),
             '\tTime: {:.2f}s'.format(end-start))
