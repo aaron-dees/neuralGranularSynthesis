@@ -280,12 +280,14 @@ def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_
     # tar_l = int(tar_l//l_grain*l_grain)
 
     # TODO Hacky way to ensure that the number of stft frames is equally divisible the conv layers required.
+    test = (((tar_l + l_grain) // l_grain) * 4) - 3
+    print(test/32)
+
     tar_l = int(((((n_stft_frames+3)/4)) * l_grain) - l_grain)
     # print("windows size: ",  4*((tar_l+l_grain)//l_grain)-3)
     # print("windows size: ",  (((((800+3)/4)) * l_grain) - l_grain))
     # 800 frames
 
-    # ((((800/4) + 3) * l_grain) - l_grain)
     classes = sorted(classes)
     train_datasets = []
     test_datasets = []
@@ -327,10 +329,14 @@ def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_
             #     data /= np.max(np.abs(data))
             #     data *= 0.9
 
-
             # Get the power spec
             mel_spec = librosa.feature.melspectrogram(y=data, sr = samplerate, n_fft = l_grain, hop_length=hop_size, n_mels=n_mels)
-        
+            # mel_spec_transform = torchaudio.transforms.MelSpectrogram(sample_rate=samplerate, n_fft = l_grain, hop_length = hop_size, n_mels = n_mels)
+            # mel_spec = mel_spec_transform(torch.from_numpy(data).float())
+
+            print("Mel Min: ", mel_spec.min())
+            print("Mel Max: ", mel_spec.max())
+
             # Normalise amplitude between 0 and 1
             mel_spec = (mel_spec - mel_spec.min()) / (mel_spec.max() - mel_spec.min())
             

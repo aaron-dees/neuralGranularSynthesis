@@ -3,7 +3,7 @@ sys.path.append('../')
 
 from models.spectrogram_models.mel_spec_model import MelSpecConvVAE
 from models.dataloaders.spectrogram_dataloaders import make_audio_dataloaders_mel_spec
-from models.loss_functions import calc_combined_loss, calc_kl_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
+from models.loss_functions import calc_combined_loss, convertToAudioMod, calc_kl_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
 from scripts.configs.hyper_parameters_mel_spec_model import *
 from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
 
@@ -19,6 +19,8 @@ import wandb
 import numpy as np
 from datetime import datetime
 import librosa
+from graphviz import Digraph
+from torchviz import make_dot
 
 print("--- Device: ", DEVICE)
 # print("--- Venv: ", sys.prefix)
@@ -147,8 +149,15 @@ if __name__ == "__main__":
                 # print(x_hat.sum())
 
                 # Compute loss
+                # convertToAudio = convertToAudioMod()
+                # waveform_recon =  convertToAudio(waveform, samplerate, l_grain, hop_size)
+                # audio_recon =  convertToAudio(x_hat, samplerate, l_grain, hop_size)
+                # make_dot(audio_recon).view()                      # backward pass
+                # print("Waveform Shape: ", waveform.shape)
+                # audio_recon = librosa.feature.inverse.mel_to_audio(x_hat.cpu().detach().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+                # waveform_recon = librosa.feature.inverse.mel_to_audio(waveform.cpu().detach().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
 
-                # spec_loss = spec_dist(x_hat, waveform)
+                # spec_loss = spec_dist(audio_recon, waveform_recon)
                 spec_loss = calc_reconstruction_loss(waveform, x_hat)
                 if beta > 0:
                     kld_loss = calc_kl_loss(mu, log_variance) * beta
@@ -168,7 +177,7 @@ if __name__ == "__main__":
                 # loss = spec_loss
 
                 # Compute gradients and update weights
-                loss.backward()                         # backward pass
+                loss.backward()   
                 optimizer.step()                        # perform optimization step
 
                 # Accumulate loss for reporting
@@ -203,10 +212,14 @@ if __name__ == "__main__":
                     # x_hat, z = model(waveform)
                     x_hat, z, mu, log_variance = model(waveform)
             
-                    # recon_audio = librosa.feature.inverse.mel_to_audio(mel_spec, sr = 44100, n_fft = self.l_grain, hop_length=self.hop_size)
+                    # audio_recon = librosa.feature.inverse.mel_to_audio(x_hat.cpu(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+                    # waveform_recon = librosa.feature.inverse.mel_to_audio(waveform.cpu(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+                    # convertToAudio = convertToAudioMod()
+                    # waveform_recon =  convertToAudio(waveform, samplerate, l_grain, hop_size)
+                    # audio_recon =  convertToAudio(x_hat, samplerate, l_grain, hop_size)
 
                     # Compute loss
-                    # spec_loss = spec_dist(x_hat, waveform)
+                    # spec_loss = spec_dist(audio_recon, waveform_recon)
                     spec_loss = calc_reconstruction_loss(waveform, x_hat)
                     
                     if beta > 0:
@@ -327,64 +340,71 @@ if __name__ == "__main__":
         model.to(DEVICE)
         model.eval()
 
-        with torch.no_grad():
+        # with torch.no_grad():
 
-            # Lets get batch of test images
-            dataiter = iter(test_dataloader)
-            waveforms, labels = next(dataiter)
+        # Lets get batch of test images
+        dataiter = iter(test_dataloader)
+        waveforms, labels = next(dataiter)
 
-            waveforms = waveforms.to(DEVICE)
+        waveforms = waveforms.to(DEVICE)
+        # waveforms_h = Variable(waveforms.data, requires_grad=True)
 
-            x_hat, z, mu, logvar = model(waveforms)                     # get sample outputs
+        x_hat, z, mu, logvar = model(waveforms)                     # get sample outputs
 
-            audio_recon = librosa.feature.inverse.mel_to_audio(x_hat.cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
-            waveform_recon = librosa.feature.inverse.mel_to_audio(waveforms.cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
-            # transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = hop_size, power=2)
-            # audio_recon = transform(x_hat)
-            # waveform_recon = transform(waveforms)
+        # invers_transform = torchaudio.transforms.InverseMelScale(sample_rate=samplerate, n_stft= int((l_grain//2) + 1), n_mels = NUM_MELS)
+        # grifflim_transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length = hop_size)
+        # inverse_waveform = invers_transform(waveforms*7000)
+        # pseudo_waveform = grifflim_transform(inverse_waveform)
 
-            # spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
-            # spec_loss = spec_dist(audio_recon, waveform_recon)
+        audio_recon = librosa.feature.inverse.mel_to_audio(x_hat.cpu().detach().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+        waveform_recon = librosa.feature.inverse.mel_to_audio((waveforms).cpu().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size)
+        # transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = hop_size, power=2)
+        # audio_recon = transform(x_hat)
+        # waveform_recon = transform(waveforms)
 
-            # print("Spectral Loss: ", spec_loss)
+        # spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
+        # spec_loss = spec_dist(audio_recon, waveform_recon)
 
-            # print_spectral_shape(waveforms[0,:], spec[0,:,:].cpu().numpy(), hop_size, l_grain)
+        # print("Spectral Loss: ", spec_loss)
 
-            # filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
+        # print_spectral_shape(waveforms[0,:], spec[0,:,:].cpu().numpy(), hop_size, l_grain)
 
-        #     spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
+        # filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
 
-        #     # spec_loss = spec_dist(x_hat, waveforms)
-        #     # print("Average: ", spec_loss)
+    #     spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 
-        #     z = z.reshape(z.shape[0] ,1, z.shape[1])
-        #     z = z.detach()
+    #     # spec_loss = spec_dist(x_hat, waveforms)
+    #     # print("Average: ", spec_loss)
 
-        #     # if VIEW_LATENT:
-        #     #     plot_latents(z,labels, classes,"./")
+    #     z = z.reshape(z.shape[0] ,1, z.shape[1])
+    #     z = z.detach()
 
-        #     if COMPARE_ENERGY:
-        #         for i, signal in enumerate(x_hat):
-        #             # Check the energy differences
-        #             # print(labels[i][:-4])
-        #             print("Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data)
-        #             print("Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data)
-        #             print("Average Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data/x_hat[i].shape[0])
-        #             print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
+    #     # if VIEW_LATENT:
+    #     #     plot_latents(z,labels, classes,"./")
 
-            if SAVE_RECONSTRUCTIONS:
-                for i, signal in enumerate(x_hat):
-                    # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
-                    # spec_loss = spec_dist(x_hat[i], waveforms[i])
-                    spec_loss = calc_reconstruction_loss(x_hat[i], waveforms[i])
-                    # Check the energy differences
-                    # print("Saving ", labels[i][:-4])
-                    print("Saving ", i)
-                    print("Loss: ", spec_loss)
-                    # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
-                    # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/mel_recon_{i}_{spec_loss}.wav', torch.from_numpy(audio_recon[i]).unsqueeze(0).cpu(), SAMPLE_RATE)
-                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/mel_{i}.wav", torch.from_numpy(waveform_recon[i]).unsqueeze(0).cpu(), SAMPLE_RATE)
-                    # print(f'{classes[labels[i]]} saved')
+    #     if COMPARE_ENERGY:
+    #         for i, signal in enumerate(x_hat):
+    #             # Check the energy differences
+    #             # print(labels[i][:-4])
+    #             print("Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data)
+    #             print("Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data)
+    #             print("Average Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data/x_hat[i].shape[0])
+    #             print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
+
+        if SAVE_RECONSTRUCTIONS:
+            for i, signal in enumerate(x_hat):
+                # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
+                # spec_loss = spec_dist(x_hat[i], waveforms[i])
+                spec_loss = calc_reconstruction_loss(x_hat[i], waveforms[i])
+                # Check the energy differences
+                # print("Saving ", labels[i][:-4])
+                print("Saving ", i)
+                print("Loss: ", spec_loss)
+                # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
+                # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
+                torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/mel_recon_{i}_{spec_loss}.wav', torch.from_numpy(audio_recon[i]).unsqueeze(0).cpu(), SAMPLE_RATE)
+                torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/mel_{i}.wav", torch.from_numpy(waveform_recon[i]).unsqueeze(0).cpu(), SAMPLE_RATE)
+                # torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/mel_{i}.wav", (pseudo_waveform[i]).unsqueeze(0).cpu(), SAMPLE_RATE)
+                # print(f'{classes[labels[i]]} saved')
 
 
