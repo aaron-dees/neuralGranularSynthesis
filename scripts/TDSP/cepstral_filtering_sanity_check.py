@@ -48,7 +48,7 @@ grain_fft = fft.rfft(mb_grains.cpu().numpy())
 grain_db = 20*np.log10(np.abs(grain_fft))
 cepstral_coeff = fft.dct(grain_db)
 # Cut of some of the shape
-# cepstral_coeff[:,128:] = 0
+cepstral_coeff[:,128:] = 0
 
 # Invert the cepstral coefficitents and scale from db -> power scale.
 inv_cepstral_coeff = 10**(fft.idct(cepstral_coeff) / 20)
@@ -73,8 +73,8 @@ filter_ir = dsp.amp_to_impulse_response(inv_cepstral_coeff, l_grain)
 # filter_ir = dsp.amp_to_impulse_response_w_phase(inv_cepstral_coeff, l_grain)
 
 # Generate the noise grains
-noise = utils.generate_noise_grains_freq(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
-# noise = utils.generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
+# noise = utils.generate_noise_grains_freq(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
+noise = utils.generate_noise_grains(bs, n_grains, l_grain, filter_ir.dtype, filter_ir.device, hop_ratio=0.25)
 # Test, apply hann window to noise
 # NOTE This created strange results with the normalsied windows.
 # ola_window = signal.hann(l_grain,sym=False)
@@ -93,26 +93,26 @@ noise = utils.generate_noise_grains_freq(bs, n_grains, l_grain, filter_ir.dtype,
 
 noise = noise.reshape(bs*n_grains, l_grain)
 noise_fft = torch.fft.rfft(noise)
-print(sig_DivSpecShape[7])
-# plt.plot(noise[7])
-# plt.plot(torch.rand(513))
-# plt.plot(inv_cepstral_coeff[7])
-#plot the complex part of the real signal
-plt.plot(sig_DivSpecShape.abs()[7])
-plt.savefig("white_noise.png")
+# print(sig_DivSpecShape[7])
+# # plt.plot(noise[7])
+# # plt.plot(torch.rand(513))
+# # plt.plot(inv_cepstral_coeff[7])
+# #plot the complex part of the real signal
+# plt.plot(sig_DivSpecShape.abs()[7])
+# plt.savefig("white_noise.png")
 
-print(sig_DivSpecShape.real)
-print(sig_DivSpecShape.imag)
-print(sig_DivSpecShape.abs())
-print("Signal Noise Max (freq): ", sig_DivSpecShape.real.max())
-print("Signal Noise Min (freq): ", sig_DivSpecShape.real.min())
-# print("White Noise Max (freq): ", torch.fft.rfft(noise).abs().max())
-print("White Noise Max (freq): ", noise_fft.real.max())
-print("White Noise Min (freq): ", noise_fft.real.min())
-print("Signal Noise Max (time): ", sig_noise[1:-1,:].max())
-print("White Noise Max (time): ", noise.max())
-print("Signal Noise Min (time): ", sig_noise[1:-1,:].min())
-print("White Noise Min (time): ", noise.min())
+# print(sig_DivSpecShape.real)
+# print(sig_DivSpecShape.imag)
+# print(sig_DivSpecShape.abs())
+# print("Signal Noise Max (freq): ", sig_DivSpecShape.real.max())
+# print("Signal Noise Min (freq): ", sig_DivSpecShape.real.min())
+# # print("White Noise Max (freq): ", torch.fft.rfft(noise).abs().max())
+# print("White Noise Max (freq): ", noise_fft.real.max())
+# print("White Noise Min (freq): ", noise_fft.real.min())
+# print("Signal Noise Max (time): ", sig_noise[1:-1,:].max())
+# print("White Noise Max (time): ", noise.max())
+# print("Signal Noise Min (time): ", sig_noise[1:-1,:].min())
+# print("White Noise Min (time): ", noise.min())
 
 # Convolve the noise and impulse response 
 audio = dsp.fft_convolve_no_pad(noise, filter_ir)
