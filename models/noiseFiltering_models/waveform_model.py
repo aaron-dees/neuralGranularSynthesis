@@ -496,9 +496,11 @@ class CepstralCoeffsEncoder(nn.Module):
         self.dense = nn.Linear(self.hidden_size * 2 if self.bidirectional else self.hidden_size, self.z_dim)
 
         # Note this for an AE, try with VAE, for mu and logvar
-        # self.mu = nn.Linear(z_dim,z_dim)
-        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        self.mu = nn.Linear(z_dim,z_dim)
+        self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
 
+        self.mel_scale = torchaudio.transforms.MelScale(
+            n_mels=64, sample_rate=44100, n_stft=(1024 // 2 + 1))
 
 
     def encode(self, x):
@@ -520,8 +522,14 @@ class CepstralCoeffsEncoder(nn.Module):
         mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
         grain_fft = torch.fft.rfft(mb_grains)
         grain_db = 20*torch.log10(torch.abs(grain_fft))
+
+        # If taking mel scale
+        # grain_fft = grain_fft.permute(0,2,1)
+        # grain_mel = torch.log10(self.mel_scale(torch.pow(torch.abs(grain_fft),2)))
+        # grain_mel = grain_mel.permute(0,2,1)
+
         cepstral_coeff = dct.dct(grain_db)
-        # Take the first 128 cepstral coefficients
+        # Take the first n_cc cepstral coefficients
         cepstral_coeff = cepstral_coeff[:,:,:self.n_cc]
 
         # Step 2 - Normalize
@@ -534,17 +542,16 @@ class CepstralCoeffsEncoder(nn.Module):
         # Step 3 - RNN
         z, _ = self.gru(z)
 
-
         # Step 4 - dense layer
         z = self.dense(z)
 
         # Step 5 - mu and log var layers
-        # mu = self.mu(z)
-        # logvar = self.logvar(z)
-        # z = sample_from_distribution(mu, logvar)
+        mu = self.mu(z)
+        logvar = self.logvar(z)
+        z = sample_from_distribution(mu, logvar)
  
-        return z
-        # return z, mu, logvar
+        # return z
+        return z, mu, logvar
 
     def forward(self, audio):
 
@@ -757,7 +764,7 @@ class CepstralCoeffsDecoder(nn.Module):
 
         return audio
     
-class CepstralCoeffsAE(nn.Module):
+class CepstralCoeffsVAE(nn.Module):
 
     def __init__(self,
                     n_grains,
@@ -778,7 +785,7 @@ class CepstralCoeffsAE(nn.Module):
                     n_linears=3,
                     h_dim=512
                     ):
-        super(CepstralCoeffsAE, self).__init__()
+        super(CepstralCoeffsVAE, self).__init__()
 
         # Encoder and decoder components
         self.Encoder = CepstralCoeffsEncoder(
@@ -811,11 +818,11 @@ class CepstralCoeffsAE(nn.Module):
     def encode(self, x):
 
          # x ---> z
-        z= self.Encoder(x);
-        # z, mu, log_variance = self.Encoder(x);
+        # z= self.Encoder(x);
+        z, mu, log_variance = self.Encoder(x);
     
-        return {"z":z} 
-        # return {"z":z,"mu":mu,"logvar":log_variance} 
+        # return {"z":z} 
+        return {"z":z,"mu":mu,"logvar":log_variance} 
 
     def decode(self, z):
             
@@ -827,15 +834,15 @@ class CepstralCoeffsAE(nn.Module):
 
         # x ---> z
         
-        z = self.Encoder(x);
-        # z, mu, log_variance = self.Encoder(x);
+        # z = self.Encoder(x);
+        z, mu, log_variance = self.Encoder(x);
         
 
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
-        # if sampling:
-        x_hat = self.Decoder(z)
-        # else:
-        #     x_hat, spec = self.Decoder(mu)
+        if sampling:
+            x_hat = self.Decoder(z)
+        else:
+            x_hat, spec = self.Decoder(mu)
 
-        return x_hat, z
+        return x_hat, z, mu, log_variance
