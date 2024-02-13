@@ -148,10 +148,11 @@ if __name__ == "__main__":
                 # x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
                 x_hat, z, mu, log_variance = model(waveform)                 # forward pass: compute predicted outputs 
 
-                # print(x_hat.sum())
+                # Normalise the audio, as is done in dataloader.
+                # x_hat = x_hat / torch.max(torch.abs(x_hat))
+                # x_hat = x_hat * 0.9
 
                 # Compute loss
-
                 spec_loss = spec_dist(x_hat, waveform)
                 if beta > 0:
                     kld_loss = compute_kld(mu, log_variance) * beta
@@ -162,9 +163,6 @@ if __name__ == "__main__":
                     env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
                 else:
                     env_loss = 0.0
-
-                kld_loss = 0
-                env_loss = 0
 
                 loss = kld_loss + spec_loss + env_loss
                 # loss = spec_loss
@@ -209,6 +207,10 @@ if __name__ == "__main__":
                     # x_hat, z = model(waveform)
                     x_hat, z, mu, log_variance = model(waveform)
 
+                    # Normalise the audio, as is done in dataloader.
+                    # x_hat = x_hat / torch.max(torch.abs(x_hat))
+                    # x_hat = x_hat * 0.9
+
                     # Compute loss
                     spec_loss = spec_dist(x_hat, waveform)
                     if beta > 0:
@@ -220,10 +222,6 @@ if __name__ == "__main__":
                         env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
                     else:
                         env_loss = 0.0
-
-                    # For VAE
-                    kld_loss = 0
-                    env_loss = 0
 
                     loss = kld_loss + spec_loss + env_loss
                     # loss = spec_loss 
@@ -336,6 +334,10 @@ if __name__ == "__main__":
             waveforms = waveforms.to(DEVICE)
 
             x_hat, z, mu, log_variance = model(waveforms)                     # get sample outputs
+
+            # Normalise the audio, as is done in dataloader.
+            x_hat = x_hat / torch.max(torch.abs(x_hat))
+            x_hat = x_hat * 0.9
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
             spec_loss = spec_dist(x_hat, waveforms)

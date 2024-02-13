@@ -3,7 +3,7 @@ sys.path.append('../')
 
 from utils.utilities import sample_from_distribution, generate_noise_grains
 from scripts.configs.hyper_parameters_waveform import BATCH_SIZE, DEVICE, LATENT_SIZE
-from utils.dsp_components import noise_filtering, mod_sigmoid
+from utils.dsp_components import noise_filtering, mod_sigmoid, safe_log10
 
 
 import torch
@@ -521,11 +521,13 @@ class CepstralCoeffsEncoder(nn.Module):
         # repeat the overlap add windows acrosss the batch and apply to the grains
         mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
         grain_fft = torch.fft.rfft(mb_grains)
-        grain_db = 20*torch.log10(torch.abs(grain_fft))
+        # use safe log here
+        grain_db = 20*safe_log10(torch.abs(grain_fft))
+        # grain_db = 20*torch.log10(torch.abs(grain_fft))
 
         # If taking mel scale
         # grain_fft = grain_fft.permute(0,2,1)
-        # grain_mel = torch.log10(self.mel_scale(torch.pow(torch.abs(grain_fft),2)))
+        # grain_mel = safe_log10(self.mel_scale(torch.pow(torch.abs(grain_fft),2)))
         # grain_mel = grain_mel.permute(0,2,1)
 
         cepstral_coeff = dct.dct(grain_db)

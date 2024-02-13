@@ -18,6 +18,9 @@ def mod_sigmoid(x):
 def safe_log(x, eps=1e-7):
     return torch.log(x + eps)
 
+def safe_log10(x, eps=1e-7):
+    return torch.log10(x + eps)
+
 ###################
 #   Noise Filtering - Follows same as DDSP repo
 #   https://github.com/magenta/ddsp/blob/main/ddsp/synths.py#L181

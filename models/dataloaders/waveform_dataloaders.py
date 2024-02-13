@@ -203,7 +203,15 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     #  - I understand the multiplication by 4, but not so much the removal of 3
     #  TODO - understand this fromulae 
     print("--- Number of non-overlapping grains:\t",tar_l//l_grain)
-    n_grains = 4*(tar_l//l_grain)-3
+    n_grains = 0
+    if (hop_ratio*100 == 25) :
+        n_grains = 4*(tar_l//l_grain)-3
+    elif (hop_ratio*100 == 50) :
+        n_grains = 2*(tar_l//l_grain)-1
+    else :
+        print("--- !!! HOP RATIO ENTERED NOT VALID.")
+ 
+
     print("--- Number of overlapping grains:\t", n_grains)
     
     classes = sorted(classes)
