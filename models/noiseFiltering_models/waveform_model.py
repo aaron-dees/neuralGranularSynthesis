@@ -597,8 +597,8 @@ class CepstralCoeffsDecoder(nn.Module):
                     n_grains,
                     hop_size,
                     normalize_ola,
-                    # pp_chans,
-                    # pp_ker,
+                    pp_chans,
+                    pp_ker,
                     z_dim,
                     n_mlp_units=512,
                     n_mlp_layers = 3,
@@ -617,7 +617,8 @@ class CepstralCoeffsDecoder(nn.Module):
         self.filter_size = l_grain//2+1
         self.tar_l = int((n_grains+3)/4*l_grain)
         self.normalize_ola = normalize_ola
-        # self.pp_chans = pp_chans
+        self.pp_chans = pp_chans
+        self.pp_ker = pp_ker
         self.z_dim = z_dim
         self.n_mlp_units = n_mlp_units
         self.n_mlp_layers = n_mlp_layers
@@ -680,7 +681,7 @@ class CepstralCoeffsDecoder(nn.Module):
             self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
         
         # TODO Look at NGS paper, and ref paper as to how and why this works.
-        # self.post_pro = nn.Sequential(nn.Conv1d(pp_chans, 1, pp_ker, padding=pp_ker//2),nn.Softsign())
+        self.post_pro = nn.Sequential(nn.Conv1d(self.pp_chans, 1, self.pp_ker, padding=pp_ker//2),nn.Softsign())
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
@@ -753,7 +754,7 @@ class CepstralCoeffsDecoder(nn.Module):
         # This module applies a multi-channel temporal convolution that
         # learns a parallel set of time-invariant FIR filters and improves
         # the audio quality of the assembled signal.
-        # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
+        audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
 
         return audio_sum
@@ -772,13 +773,13 @@ class CepstralCoeffsVAE(nn.Module):
                     n_grains,
                     hop_size,
                     normalize_ola,
+                    pp_chans,
+                    pp_ker,
                     n_cc=30,
                     hidden_size=512,
                     bidirectional=False,
                     z_dim = 128,
                     l_grain=2048,                    
-                    # pp_chans,
-                    # pp_ker,
                     n_mlp_units=512,
                     n_mlp_layers = 3,
                     relu = nn.ReLU,
@@ -803,8 +804,8 @@ class CepstralCoeffsVAE(nn.Module):
                         n_grains = n_grains,
                         hop_size = hop_size,
                         normalize_ola = normalize_ola,
-                        # pp_chans,
-                        # pp_ker,
+                        pp_chans = pp_chans,
+                        pp_ker = pp_ker,
                         z_dim = z_dim,
                         n_mlp_units = n_mlp_units,
                         n_mlp_layers = n_mlp_layers,
