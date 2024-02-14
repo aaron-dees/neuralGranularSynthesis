@@ -52,7 +52,7 @@ if __name__ == "__main__":
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = CepstralCoeffsVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, l_grain=l_grain, n_cc=NUM_CC)
+    model = CepstralCoeffsVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, pp_chans=POSTPROC_CHANNELS, pp_ker=POSTPROC_KER_SIZE, l_grain=l_grain, n_cc=NUM_CC)
     
     model.to(DEVICE)
 
@@ -306,10 +306,6 @@ if __name__ == "__main__":
     else:
 
         print("-------- Inference Mode --------")
-
-
-        # model = CepstralCoeffsVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA)
-
 
         ###########
         # Inference
