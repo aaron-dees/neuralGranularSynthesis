@@ -689,6 +689,8 @@ class CepstralCoeffsDecoder(nn.Module):
         h = self.mlp_z(z)
 
         # Step 2 - RNN
+        # note that the GRU (and LSTM) will return a hidden state for each time step, 
+        # in theory if trying to predict the next value then you would take the final time step, h[:, -1, :].
         h, _= self.gru(h)
 
         # Step 3 - MLP
