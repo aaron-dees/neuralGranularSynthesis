@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from models.waveform_models.usd_waveform_model import WaveformEncoder, WaveformDecoder, WaveformVAE
+from models.noiseFiltering_models.waveform_model import WaveformEncoder, WaveformDecoder, WaveformVAE
 from models.dataloaders.waveform_dataloaders import ESC50WaveformDataset, make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
