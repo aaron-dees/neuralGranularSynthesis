@@ -155,9 +155,9 @@ if __name__ == "__main__":
                 ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
                 ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
                 ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-                ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+                ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
 
-                slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
+                slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
                 mb_grains = F.conv1d(waveform.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
                 mb_grains = mb_grains.permute(0,2,1)
                 bs = mb_grains.shape[0]
@@ -228,7 +228,7 @@ if __name__ == "__main__":
                     unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
                     input_ones = torch.ones(1,1,tar_l,1)
                     ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                    ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
+                    ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
                     audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
                 # NOTE Removed the post processing step for now
@@ -241,8 +241,8 @@ if __name__ == "__main__":
 
 
                 # Normalise the audio, as is done in dataloader.
-                # x_hat = x_hat / torch.max(torch.abs(x_hat))
-                # x_hat = x_hat * 0.9
+                audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                audio_sum = audio_sum * 0.9
 
                 # Compute loss
                 spec_loss = spec_dist(audio_sum, waveform)
@@ -302,9 +302,9 @@ if __name__ == "__main__":
                     ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
                     ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
                     ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-                    ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+                    ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
 
-                    slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
+                    slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
                     mb_grains = F.conv1d(waveform.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
                     mb_grains = mb_grains.permute(0,2,1)
                     bs = mb_grains.shape[0]
@@ -375,7 +375,7 @@ if __name__ == "__main__":
                         unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
                         input_ones = torch.ones(1,1,tar_l,1)
                         ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                        ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
+                        ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
                         audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
                     # NOTE Removed the post processing step for now
@@ -386,8 +386,8 @@ if __name__ == "__main__":
                     # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
                     # Normalise the audio, as is done in dataloader.
-                    # x_hat = x_hat / torch.max(torch.abs(x_hat))
-                    # x_hat = x_hat * 0.9
+                    audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                    audio_sum = audio_sum * 0.9
 
                     # Compute loss
                     spec_loss = spec_dist(audio_sum, waveform)
@@ -513,9 +513,9 @@ if __name__ == "__main__":
             ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
             ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
             ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-            ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+            ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
 
-            slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
+            slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
             mb_grains = F.conv1d(waveforms.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
             mb_grains = mb_grains.permute(0,2,1)
             bs = mb_grains.shape[0]
@@ -591,7 +591,7 @@ if __name__ == "__main__":
                 unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
                 input_ones = torch.ones(1,1,tar_l,1)
                 ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
+                ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
                 audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
             # NOTE Removed the post processing step for now
@@ -603,7 +603,7 @@ if __name__ == "__main__":
 
 
             # Normalise the audio, as is done in dataloader.
-            audio_sum = audio_sum / torch.max(torch.abs(x_hat))
+            audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
             audio_sum = audio_sum * 0.9
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
