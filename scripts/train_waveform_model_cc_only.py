@@ -180,10 +180,10 @@ if __name__ == "__main__":
 
                 # MFCCs  - use librosa function as they are more reliable
                 grain_fft = grain_fft.permute(0,2,1)
-                grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft)**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+                grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
                 mfccs = dct.dct(grain_mel)
                 inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH))
+                inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
                 inv_mfccs = inv_mfccs.permute(0,2,1)
                 
                 # ---------- Get CCs, or MFCCs and invert END ----------
@@ -337,10 +337,10 @@ if __name__ == "__main__":
 
                     # MFCCs  - use librosa function as they are more reliable
                     grain_fft = grain_fft.permute(0,2,1)
-                    grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft)**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+                    grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
                     mfccs = dct.dct(grain_mel)
                     inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                    inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH))
+                    inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
                     inv_mfccs = inv_mfccs.permute(0,2,1)
 
                     # ---------- Get CCs, or MFCCs and invert END ----------
@@ -562,7 +562,6 @@ if __name__ == "__main__":
             inv_mfccs = dct.idct(mfccs).cpu().numpy()       
             inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH))
             inv_mfccs = inv_mfccs.permute(0,2,1)
-            print("Inv MFCC Shape: ", inv_mfccs.shape)
 
             x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
              # return the spectral shape 
