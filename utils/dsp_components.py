@@ -33,7 +33,7 @@ def safe_log10(x, eps=1e-7):
 #           - Transform noise signal and windowed filter coefficients into  fourier domain
 #           - Convolve the signal, by multiplying them in the fourier domain
 #           - Perform inverse fourier transform of new signal to get audio signal
-def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
+def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain, hop_ratio):
     # N = filter_coeffs.shape[0]
     # get number of sample based on number of freq bins
     # num_samples = (filter_coeffs.shape[1]-1)*2
@@ -60,7 +60,7 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain):
 
     bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
     
-    noise = utils.generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=0.25)
+    noise = utils.generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=hop_ratio)
     noise = noise.reshape(bs*n_grains, l_grain)
 
     
