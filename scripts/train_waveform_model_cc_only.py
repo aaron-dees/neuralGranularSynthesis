@@ -25,6 +25,7 @@ from datetime import datetime
 
 print("--- Device: ", DEVICE)
 # print("--- Venv: ", sys.prefix)
+# sdcsff
 
 # start a new wandb run to track this script
 if WANDB:
@@ -179,19 +180,20 @@ if __name__ == "__main__":
                 inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
                 # MFCCs  - use librosa function as they are more reliable
-                grain_fft = grain_fft.permute(0,2,1)
-                grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-                mfccs = dct.dct(grain_mel)
-                inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
-                inv_mfccs = inv_mfccs.permute(0,2,1)
+                # Optimise this for speed
+                # grain_fft = grain_fft.permute(0,2,1)
+                # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+                # mfccs = dct.dct(grain_mel)
+                # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
+                # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
+                # inv_mfccs = inv_mfccs.permute(0,2,1)
                 
                 # ---------- Get CCs, or MFCCs and invert END ----------
 
                 # ---------- Run Model ----------
 
-                # x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
-                x_hat, z, mu, log_variance = model(inv_mfccs)   
+                x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
+                # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                 # ---------- Run Model END ----------
 
@@ -336,19 +338,19 @@ if __name__ == "__main__":
                     inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
                     # MFCCs  - use librosa function as they are more reliable
-                    grain_fft = grain_fft.permute(0,2,1)
-                    grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-                    mfccs = dct.dct(grain_mel)
-                    inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                    inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
-                    inv_mfccs = inv_mfccs.permute(0,2,1)
+                    # grain_fft = grain_fft.permute(0,2,1)
+                    # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+                    # mfccs = dct.dct(grain_mel)
+                    # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
+                    # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
+                    # inv_mfccs = inv_mfccs.permute(0,2,1)
 
                     # ---------- Get CCs, or MFCCs and invert END ----------
 
                     # ---------- Run Model ----------
 
-                    # x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
-                    x_hat, z, mu, log_variance = model(inv_mfccs)   
+                    x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
+                    # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                     # ---------- Run Model END ----------
 

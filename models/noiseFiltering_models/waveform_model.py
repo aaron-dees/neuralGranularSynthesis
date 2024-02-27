@@ -243,7 +243,8 @@ class WaveformDecoder(nn.Module):
                     n_linears=3,
                     l_grain = 2048,
                     h_dim=512,
-                    z_dim=128
+                    z_dim=128,
+                    hop_ratio=0.25
                     ):
         super(WaveformDecoder, self).__init__()
 
@@ -253,6 +254,7 @@ class WaveformDecoder(nn.Module):
         self.tar_l = int((n_grains+3)/4*l_grain)
         self.normalize_ola = normalize_ola
         self.pp_chans = pp_chans
+        self.hop_ratio = hop_ratio
 
         decoder_linears = [linear_block(z_dim,h_dim)]
         decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
@@ -312,7 +314,7 @@ class WaveformDecoder(nn.Module):
         # cc = torch.nn.functional.pad(filter_coeffs, (0, (2048/2 +1) - filter_coeffs.shape[1]))
         
         # audio = noise_filtering(inv_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
-        audio = noise_filtering(orig_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
+        audio = noise_filtering(orig_filter_coeffs, self.filter_window, self.n_grains, self.l_grain, self.hop_ratio)
 
 
         # Check if number of grains wanted is entered, else use the original
@@ -608,6 +610,7 @@ class CepstralCoeffsDecoder(nn.Module):
                     bidirectional = False,
                     n_freq = 1025,
                     l_grain = 2048,
+                    hop_ratio = 0.25
                     ):
         super(CepstralCoeffsDecoder, self).__init__()
 
@@ -627,6 +630,7 @@ class CepstralCoeffsDecoder(nn.Module):
         self.n_freq = n_freq
         self.relu = relu
         self.inplace = inplace
+        self.hop_ratio = hop_ratio
 
         # self.mlp_z = MLP(n_input=self.z_dim, n_units=self.n_mlp_units, n_layer=self.n_mlp_layers)
         mlp_z = [nn.Sequential(nn.Linear(self.z_dim,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=self.inplace))]
@@ -719,7 +723,8 @@ class CepstralCoeffsDecoder(nn.Module):
         h = h.reshape(h.shape[0]*h.shape[1],h.shape[2])
 
         # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-        audio = noise_filtering(h, self.filter_window, self.n_grains, self.l_grain)
+        # TODO add hop ratio
+        audio = noise_filtering(h, self.filter_window, self.n_grains, self.l_grain, self.hop_ratio)
 
         # Check if number of grains wanted is entered, else use the original
         if n_grains is None:
