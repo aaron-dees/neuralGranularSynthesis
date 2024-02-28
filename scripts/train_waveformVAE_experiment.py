@@ -173,11 +173,8 @@ if __name__ == "__main__":
                 ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
                 mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
-                grain_fft = torch.fft.rfft(mb_grains)
-                grain_fft = (torch.abs(grain_fft))
-
                 # x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
-                x_hat, z, mu, log_variance = model(grain_fft)                 # forward pass: compute predicted outputs 
+                x_hat, z, mu, log_variance = model(mb_grains)                 # forward pass: compute predicted outputs 
 
                 # Normalise the audio, as is done in dataloader.
                 # x_hat = x_hat / torch.max(torch.abs(x_hat))
@@ -248,11 +245,8 @@ if __name__ == "__main__":
                     ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
                     mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
-                    grain_fft = torch.fft.rfft(mb_grains)
-                    grain_fft = (torch.abs(grain_fft))
-
                     # x_hat, z = model(waveform)
-                    x_hat, z, mu, log_variance = model(grain_fft)
+                    x_hat, z, mu, log_variance = model(mb_grains)
 
                     # Normalise the audio, as is done in dataloader.
                     # x_hat = x_hat / torch.max(torch.abs(x_hat))
