@@ -6,7 +6,9 @@ from models.dataloaders.waveform_dataloaders import make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
 from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
+from utils.dsp_components import safe_log10
 from torch.nn import functional as F
+import torch_dct as dct
 
 
 import torch
@@ -173,8 +175,21 @@ if __name__ == "__main__":
                 ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
                 mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
+                grain_fft = torch.fft.rfft(mb_grains)
+
+                # ---------- Turn Waveform into grains END ----------
+
+                # ---------- Get CCs, or MFCCs and invert ----------
+                # CCs
+                grain_db = 20*safe_log10(torch.abs(grain_fft))
+                cepstral_coeff = dct.dct(grain_db)
+                # Take the first n_cc cepstral coefficients
+                cepstral_coeff[:, :,NUM_CC:] = 0
+                inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+
                 # x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
-                x_hat, z, mu, log_variance = model(mb_grains)                 # forward pass: compute predicted outputs 
+                # x_hat, z, mu, log_variance = model(mb_grains)                 # forward pass: compute predicted outputs 
+                x_hat, z, mu, log_variance = model(inv_cep_coeffs)                 # forward pass: compute predicted outputs 
 
                 # Normalise the audio, as is done in dataloader.
                 # x_hat = x_hat / torch.max(torch.abs(x_hat))
@@ -245,8 +260,21 @@ if __name__ == "__main__":
                     ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
                     mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
+                    grain_fft = torch.fft.rfft(mb_grains)
+
+                    # ---------- Turn Waveform into grains END ----------
+
+                    # ---------- Get CCs, or MFCCs and invert ----------
+                    # CCs
+                    grain_db = 20*safe_log10(torch.abs(grain_fft))
+                    cepstral_coeff = dct.dct(grain_db)
+                    # Take the first n_cc cepstral coefficients
+                    cepstral_coeff[:, :,NUM_CC:] = 0
+                    inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+
                     # x_hat, z = model(waveform)
-                    x_hat, z, mu, log_variance = model(mb_grains)
+                    # x_hat, z, mu, log_variance = model(mb_grains)
+                    x_hat, z, mu, log_variance = model(inv_cep_coeffs)
 
                     # Normalise the audio, as is done in dataloader.
                     # x_hat = x_hat / torch.max(torch.abs(x_hat))

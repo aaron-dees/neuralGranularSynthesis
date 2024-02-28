@@ -480,7 +480,8 @@ class WaveformEncoderTest(nn.Module):
         self.encoder_convs = nn.ModuleList(encoder_convs)
 
         # self.flatten_size = int(channels*l_grain/(stride**n_convs))
-        self.flatten_size = int(l_grain)
+        # self.flatten_size = int(l_grain)
+        self.flatten_size = int((l_grain//2)+1)
         self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
         self.mu = nn.Linear(z_dim,z_dim)
         self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
@@ -498,7 +499,8 @@ class WaveformEncoderTest(nn.Module):
         # merge the grain dimension into batch dimension
         # mb_grains of shape [bs*n_grains,1,l_grain]
 
-        mb_grains = x.reshape(x.shape[0]*self.n_grains,self.l_grain)
+        # mb_grains = x.reshape(x.shape[0]*self.n_grains,self.l_grain)
+        mb_grains = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
 
         # mb_grains = x.reshape(x.shape[0]*self.n_grains,self.l_grain).unsqueeze(1)
 
@@ -513,7 +515,7 @@ class WaveformEncoderTest(nn.Module):
         # flatten??
         # mb_grains = mb_grains.view(-1,self.flatten_size)
         # mb_grains = mb_grains.reshape(mb_grains.shape[0], self.flatten_size)
-        print("After flatten: ", mb_grains.shape)
+        # print("After flatten: ", mb_grains.shape)
 
         # Linear layer
         h = self.encoder_linears(mb_grains)
