@@ -76,7 +76,6 @@ class linear_block(nn.Module):
         super(linear_block, self).__init__()
         if norm=="BN":
             self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.BatchNorm1d(out_size),nn.LeakyReLU(0.2))
-            # self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.LeakyReLU(0.2))
         if norm=="LN":
             self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.LayerNorm(out_size),nn.LeakyReLU(0.2))
     def forward(self, x):
@@ -1554,8 +1553,9 @@ class SpectralEncoder(nn.Module):
         # logvar = self.logvar(z)
         # z = sample_from_distribution(mu, logvar)
 
-        # mb_grains = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
-        mb_grains = x
+        # The reshape is important for the KL Loss and trating each grains as a batch value,
+        # This reshap can be performed here or simply before the KL loss calculation.
+        mb_grains = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
 
         # Linear layer
         h = self.encoder_linears(mb_grains)
@@ -1567,6 +1567,7 @@ class SpectralEncoder(nn.Module):
 
         # z of shape [bs*n_grains,z_dim]
         z = sample_from_distribution(mu, logvar)
+
  
         # return z
         return z, mu, logvar
@@ -1649,34 +1650,28 @@ class SpectralDecoder(nn.Module):
 
 
 
-        self.dense1 = nn.Sequential(nn.Linear(self.z_dim, self.n_mlp_units), nn.ReLU())
-        self.dense2 = nn.Sequential(nn.Linear(self.n_mlp_units, (self.l_grain//2)+1), nn.ReLU())
+        # self.dense1 = nn.Sequential(nn.Linear(self.z_dim, (self.l_grain//2)+1), nn.ReLU())
+        # self.dense2 = nn.Sequential(nn.Linear(self.n_mlp_units, (self.l_grain//2)+1), nn.ReLU())
         # self.dense2 = nn.Sequential(nn.Linear(self.n_mlp_units, self.l_grain, nn.ReLU()))
 
-        # decoder_linears = [linear_block(z_dim,h_dim)]
-        # decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
-        # decoder_linears += [nn.Linear(h_dim,self.filter_size)]
-        # self.decoder_linears = nn.Sequential(*decoder_linears)
-
-        #Test
-        decoder_linears = [nn.Linear(z_dim,self.filter_size)]
+        decoder_linears = [linear_block(z_dim,h_dim)]
+        decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
+        decoder_linears += [nn.Linear(h_dim,self.filter_size)]
         self.decoder_linears = nn.Sequential(*decoder_linears)
+
 
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
-        h = self.dense1(z)
+        # h = self.dense1(z)
+        # filter_coeffs = h
 
-        h = self.dense2(h)
-
-        filter_coeffs = h
-
-        # filter_coeffs = self.decoder_linears(z)
+        filter_coeffs = self.decoder_linears(z)
 
         # What does this do??
-        # filter_coeffs = mod_sigmoid(filter_coeffs)
+        filter_coeffs = mod_sigmoid(filter_coeffs)
 
-        #TODO fix this correctly to deal with varying bsatch sizes
+        # Reshape back into the batch and grains
         filter_coeffs = filter_coeffs.reshape(-1, self.n_grains, (self.l_grain//2)+1)
 
         return filter_coeffs
