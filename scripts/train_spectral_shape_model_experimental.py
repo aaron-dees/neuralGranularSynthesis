@@ -256,8 +256,8 @@ if __name__ == "__main__":
                 # ---------- Normalise the audio ----------
                     
                 # Normalise the audio, as is done in dataloader.
-                audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-                audio_sum = audio_sum * 0.9
+                # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                # audio_sum = audio_sum * 0.9
 
                 # ---------- Normalise the audio END ----------
 
@@ -413,8 +413,8 @@ if __name__ == "__main__":
                     # ---------- Normalise the audio ----------
 
                     # Normalise the audio, as is done in dataloader.
-                    audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-                    audio_sum = audio_sum * 0.9
+                    # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                    # audio_sum =audio_sum * 0.9
 
                     # ---------- Normalise the audio END ----------
 

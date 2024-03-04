@@ -76,6 +76,7 @@ class linear_block(nn.Module):
         super(linear_block, self).__init__()
         if norm=="BN":
             self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.BatchNorm1d(out_size),nn.LeakyReLU(0.2))
+            # self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.LeakyReLU(0.2))
         if norm=="LN":
             self.block = nn.Sequential(nn.Linear(in_size,out_size),nn.LayerNorm(out_size),nn.LeakyReLU(0.2))
     def forward(self, x):
@@ -1534,7 +1535,7 @@ class SpectralEncoder(nn.Module):
         self.n_mlp_units = n_mlp_units
 
 
-        # self.dense = nn.Sequential(nn.Linear(self.l_grain, self.n_mlp_units), nn.ReLU())
+        # self.dense = nn.Sequential(nn.Linear((self.l_grain//2)+1, self.n_mlp_units), nn.ReLU())
         # # self.dense = nn.Sequential(nn.Linear((self.l_grain//2)+1,self.n_mlp_units), nn.ReLU())
         # self.mu = nn.Linear(self.n_mlp_units, self.z_dim)
         # self.logvar = nn.Sequential(nn.Linear(self.n_mlp_units, self.z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
@@ -1553,7 +1554,8 @@ class SpectralEncoder(nn.Module):
         # logvar = self.logvar(z)
         # z = sample_from_distribution(mu, logvar)
 
-        mb_grains = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
+        # mb_grains = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
+        mb_grains = x
 
         # Linear layer
         h = self.encoder_linears(mb_grains)
@@ -1622,7 +1624,8 @@ class SpectralDecoder(nn.Module):
                     bidirectional = False,
                     n_freq = 1025,
                     l_grain = 2048,
-                    n_linears = 3,
+                    n_linears = 1,
+                    # n_linears = 3,
                     h_dim = 512
                     ):
         super(SpectralDecoder, self).__init__()
@@ -1646,29 +1649,35 @@ class SpectralDecoder(nn.Module):
 
 
 
-        # self.dense1 = nn.Sequential(nn.Linear(self.z_dim, self.n_mlp_units), nn.ReLU())
-        # # self.dense2 = nn.Sequential(nn.Linear(self.n_mlp_units, (self.l_grain//2)+1), nn.ReLU())
+        self.dense1 = nn.Sequential(nn.Linear(self.z_dim, self.n_mlp_units), nn.ReLU())
+        self.dense2 = nn.Sequential(nn.Linear(self.n_mlp_units, (self.l_grain//2)+1), nn.ReLU())
         # self.dense2 = nn.Sequential(nn.Linear(self.n_mlp_units, self.l_grain, nn.ReLU()))
 
-        decoder_linears = [linear_block(z_dim,h_dim)]
-        decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
-        decoder_linears += [nn.Linear(h_dim,self.filter_size)]
+        # decoder_linears = [linear_block(z_dim,h_dim)]
+        # decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
+        # decoder_linears += [nn.Linear(h_dim,self.filter_size)]
+        # self.decoder_linears = nn.Sequential(*decoder_linears)
+
+        #Test
+        decoder_linears = [nn.Linear(z_dim,self.filter_size)]
         self.decoder_linears = nn.Sequential(*decoder_linears)
 
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
-        # h = self.dense1(z)
+        h = self.dense1(z)
 
-        # h = self.dense2(h)
+        h = self.dense2(h)
 
-        filter_coeffs = self.decoder_linears(z)
+        filter_coeffs = h
+
+        # filter_coeffs = self.decoder_linears(z)
 
         # What does this do??
-        filter_coeffs = mod_sigmoid(filter_coeffs)
+        # filter_coeffs = mod_sigmoid(filter_coeffs)
 
         #TODO fix this correctly to deal with varying bsatch sizes
-        filter_coeffs = filter_coeffs.reshape(1, filter_coeffs.shape[0], filter_coeffs.shape[1])
+        filter_coeffs = filter_coeffs.reshape(-1, self.n_grains, (self.l_grain//2)+1)
 
         return filter_coeffs
         # return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
@@ -1698,7 +1707,8 @@ class SpectralVAE(nn.Module):
                     relu = nn.ReLU,
                     inplace = True,
                     n_freq = 1025,
-                    n_linears=3,
+                    n_linears=1,
+                    # n_linears=3,
                     h_dim=512
                     ):
         super(SpectralVAE, self).__init__()
