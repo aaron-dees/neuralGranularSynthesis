@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1
+from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1, SpectralVAE_v2
 from models.dataloaders.waveform_dataloaders import make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_spectral import *
@@ -58,7 +58,8 @@ if __name__ == "__main__":
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = SpectralVAE_v1(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, pp_chans=POSTPROC_CHANNELS, pp_ker=POSTPROC_KER_SIZE, l_grain=l_grain, n_cc=NUM_CC, n_freq=int(l_grain/2)+1)
+    # model = SpectralVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=512, z_dim=LATENT_SIZE)
+    model = SpectralVAE_v2(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
     
     model.to(DEVICE)
 
