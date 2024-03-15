@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1, SpectralVAE_v2, SpectralVAE_v3
+from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1, SpectralVAE_v2
 from models.dataloaders.waveform_dataloaders import make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_spectral import *
@@ -32,14 +32,15 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_ccVAE_CPU_Local",
-        name= f"run_{datetime.now()}",
+        project="warmupExperiments",
+        # name= f"run_{datetime.now()}",
+        name= f"run_warmup{BETA_WARMUP_START_PERC}_{datetime.now()}",
     
         # track hyperparameters and run metadata
         config={
         "learning_rate": LEARNING_RATE,
-        "architecture": "cc_VAE",
-        "dataset": "UrbanSound8K",
+        "architecture": "v1",
+        "dataset": "Full_Seawaves_UrbanSound8k",
         "epochs": EPOCHS,
         "latent size": LATENT_SIZE,
         "env_dist": ENV_DIST,
@@ -59,7 +60,7 @@ if __name__ == "__main__":
     # test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
     test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
-    model = SpectralVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=512, z_dim=LATENT_SIZE)
+    model = SpectralVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
     # model = SpectralVAE_v2(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
     # model = SpectralVAE_v3(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE, channels = 32, kernel_size = 3, stride = 2)
     
@@ -114,14 +115,9 @@ if __name__ == "__main__":
             print(f'Epoch: {start_epoch}')
             print(f'Loss: {train_loss}')
 
-        # TEST
-        accum_iter = 100
-        # Model in training mode
-
         # Set spectral distances
         spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 
-        
         for epoch in range(start_epoch, EPOCHS):
 
             start = time.time()
@@ -452,7 +448,7 @@ if __name__ == "__main__":
 
             # wandb logging
             if WANDB:
-                wandb.log({"kl_loss": kl_loss, "spec_loss": train_spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
+                wandb.log({"kl_loss": kl_loss, "spec_loss": train_spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss, "beta": beta})
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
@@ -497,6 +493,7 @@ if __name__ == "__main__":
                         # Lets get batch of test images
                         dataiter = iter(test_dataloader)
                         waveform, labels = next(dataiter)
+                        waveform = waveform.to(DEVICE)
 
                         # ---------- Turn Waveform into grains ----------
                         ola_window = signal.hann(l_grain,sym=False)
@@ -580,6 +577,9 @@ if __name__ == "__main__":
                             ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
                             ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
                             audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+                        # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                        # audio_sum =audio_sum * 0.9
 
                         # Get the spectral loss
                         spec_loss = spec_dist(audio_sum, waveform)
