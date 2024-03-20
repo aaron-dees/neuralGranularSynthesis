@@ -9,6 +9,7 @@ from utils.utilities import plot_latents, export_latents, init_beta, print_spect
 from utils.dsp_components import safe_log10, noise_filtering, mod_sigmoid
 import torch_dct as dct
 import librosa
+from frechet_audio_distance import FrechetAudioDistance
 
 
 import torch
@@ -48,6 +49,16 @@ if WANDB:
         "grain_length": GRAIN_LENGTH
         }
     )
+
+# Evaluation metric
+frechet = FrechetAudioDistance(
+    model_name="vggish",
+    # Do I need to resample these?
+    sample_rate=16000,
+    use_pca=False, 
+    use_activation=False,
+    verbose=False
+)
 
 if __name__ == "__main__":
 
@@ -588,10 +599,17 @@ if __name__ == "__main__":
                             # spec_loss = spec_dist(x_hat[i], waveforms[i])
                             # Check the energy differences
                             print("Saving ", i)
-                            print("Loss: ", spec_loss)
-                            torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', recon_signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                            torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', recon_signal.unsqueeze(0).cpu(), SAMPLE_RATE)
                             # torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
-                            torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                            torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/real_audio/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+
+                        fad_score = frechet.score(f'{RECONSTRUCTION_SAVE_DIR}/real_audio', f'{RECONSTRUCTION_SAVE_DIR}/fake_audio', dtype="float32")
+
+                        print('Test Spec Loss: {}'.format(spec_loss),
+                            '\tTest FAD Score: {}'.format(fad_score))
+
+                        if WANDB:
+                            wandb.log({"test_spec_loss": spec_loss, "test_fad_score": fad_score})
 
     elif EXPORT_LATENTS:
 
