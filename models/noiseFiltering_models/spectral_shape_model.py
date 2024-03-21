@@ -219,6 +219,8 @@ class SpectralVAE_v1(nn.Module):
                     ):
         super(SpectralVAE_v1, self).__init__()
 
+        self.z_dim = z_dim
+
         # Encoder and decoder components
         self.Encoder = SpectralEncoder_v1(
                         n_grains = n_grains,
@@ -398,6 +400,8 @@ class SpectralVAE_v2(nn.Module):
                     h_dim=[2048, 1024, 512],
                     ):
         super(SpectralVAE_v2, self).__init__()
+
+        self.z_dim = z_dim
 
         # Encoder and decoder components
         self.Encoder = SpectralEncoder_v2(

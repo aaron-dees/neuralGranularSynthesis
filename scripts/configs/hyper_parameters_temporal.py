@@ -9,8 +9,8 @@ DEVICE = torch.device("cpu")
 DATALOADER_DEVICE = torch.device('cpu')
 
 # Hyper Parameters
-BATCH_SIZE = 12
-TEST_SIZE = 10
+BATCH_SIZE = 6
+TEST_SIZE = 1
 EPOCHS = 100
 LEARNING_RATE = 0.0005
 # LATENT_SIZE = 128
@@ -31,14 +31,14 @@ BETA_STEPS = 1
 
 # # Mode and directories
 WANDB = False
-TRAIN = False
+TRAIN = True
 # EXPORT_LATENTS = True
 SAVE_CHECKPOINT = False
 SAVE_MODEL_DIR = f'/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints'
 CHECKPOINT_REGULAIRTY = 5
-LOAD_WAVEFORM_CHECKPOINT = True
-LOAD_LATENT_CHECKPOINT = True
-EXPORT_AUDIO_RECON = True
+LOAD_WAVEFORM_CHECKPOINT = False
+LOAD_LATENT_CHECKPOINT = False
+EXPORT_AUDIO_RECON = False
 EXPORT_AUDIO_DIR = '/Users/adees/Code/neural_granular_synthesis/scripts/audio_tests/reconstructions/latent_reconstruections'
 EXPORT_RANDOM_LATENT_AUDIO_DIR = '/Users/adees/Code/neural_granular_synthesis/scripts/audio_tests/reconstructions/latent_reconstruections/random'
 # VIEW_LATENT = False

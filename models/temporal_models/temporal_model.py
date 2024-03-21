@@ -67,6 +67,8 @@ class LatentEncoder(nn.Module):
         h = self.encoder_z(z)
 
         h,h_n = self.encoder_rnn(h)
+        # h contains the output features from the last layer of the LSTM, for each t.
+        # h_n contains final cell state and final hidden state 
 
         if self.rnn_type == "LSTM":
             # discard the LSTM cell state

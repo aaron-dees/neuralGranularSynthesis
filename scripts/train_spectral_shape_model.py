@@ -272,6 +272,7 @@ if __name__ == "__main__":
 
                 # ---------- Normalise the audio END ----------
 
+                #mu shape: [bs*n_grains, z_dim]
                 # Compute loss
                 spec_loss = spec_dist(audio_sum, waveform)
                 if beta > 0:
@@ -625,8 +626,9 @@ if __name__ == "__main__":
         model.to(DEVICE)
         model.eval()
 
-        train_latents,train_labels,val_latents,val_labels = export_latents(model,test_dataloader,test_dataloader, DEVICE)
-        # train_latents,train_labels,val_latents,val_labels = export_latents(model,train_dataloader,val_dataloader, DEVICE)
+        print(len(test_dataloader))
+        train_latents,train_labels,val_latents,val_labels = export_latents(model,test_dataloader,test_dataloader, l_grain, n_grains, hop_size, TEST_SIZE, DEVICE)
+        # train_latents,train_labels,val_latents,val_labels = export_latents(model,train_dataloader,val_dataloader, l_grain, n_grains, hop_size, BATCH_SIZE, DEVICE)
         
         print("-------- Done Exporting Latents --------")
 

@@ -1,13 +1,14 @@
 import sys
 sys.path.append('../')
 
-from models.waveform_models.usd_waveform_model import WaveformVAE
+from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1, SpectralVAE_v2
 from models.temporal_models.temporal_model import LatentVAE
 from models.dataloaders.waveform_dataloaders import  make_audio_dataloaders
 from models.dataloaders.latent_dataloaders import make_latent_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_temporal import *
-from scripts.configs.hyper_parameters_waveform import LATENT_SIZE, AUDIO_DIR, SAMPLE_RATE, NORMALIZE_OLA, POSTPROC_KER_SIZE, POSTPROC_CHANNELS, HOP_SIZE_RATIO, GRAIN_LENGTH, TARGET_LENGTH, HIGH_PASS_FREQ
+# from scripts.configs.hyper_parameters_waveform import LATENT_SIZE, AUDIO_DIR, SAMPLE_RATE, NORMALIZE_OLA, POSTPROC_KER_SIZE, POSTPROC_CHANNELS, HOP_SIZE_RATIO, GRAIN_LENGTH, TARGET_LENGTH, HIGH_PASS_FREQ
+from scripts.configs.hyper_parameters_spectral import LATENT_SIZE, AUDIO_DIR, TEST_AUDIO_DIR, SAMPLE_RATE, NORMALIZE_OLA, POSTPROC_KER_SIZE, POSTPROC_CHANNELS, HOP_SIZE_RATIO, GRAIN_LENGTH, TARGET_LENGTH, HIGH_PASS_FREQ, H_DIM
 from utils.utilities import plot_latents, export_latents, init_beta, export_embedding_to_audio_reconstructions, export_random_samples
 
 
@@ -29,7 +30,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="SeaWaves_latentVAE_GPU",
+        project="temporalModel",
         name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -53,26 +54,14 @@ if __name__ == "__main__":
     train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
     # Test dataloader
-    test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
-    test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
+    # test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
+    # test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
+    test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
-    w_model = WaveformVAE(n_grains = n_grains,
-                    hop_size=hop_size,
-                    normalize_ola=NORMALIZE_OLA,
-                    pp_chans=POSTPROC_CHANNELS,
-                    pp_ker=POSTPROC_KER_SIZE,
-                    kernel_size=9,
-                    channels=128,
-                    stride=4,
-                    n_convs=3,
-                    n_linears=3,
-                    num_samples=l_grain,
-                    l_grain=l_grain,
-                    h_dim=512,
-                    z_dim=LATENT_SIZE)
+    w_model = SpectralVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
+    # w_model = SpectralVAE_v2(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
+    # w_model = SpectralVAE_v3(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE, channels = 32, kernel_size = 3, stride = 2)
     
-    w_model.to(DEVICE)
-
     if LOAD_WAVEFORM_CHECKPOINT:
         checkpoint = torch.load(WAVEFORM_CHECKPOINT_LOAD_PATH)
         w_model.load_state_dict(checkpoint['model_state_dict'])
@@ -82,10 +71,11 @@ if __name__ == "__main__":
 
     print("--- Exporting latents")
 
-    train_latents,train_labels,val_latents,val_labels = export_latents(w_model,train_dataloader,val_dataloader, DEVICE)
-    # train_latents,train_labels,val_latents,val_labels = export_latents(w_model,test_dataloader,test_dataloader, DEVICE)
-    test_latents,test_labels,_,_ = export_latents(w_model,test_dataloader,test_dataloader, DEVICE)
-
+    # train_latents,train_labels,val_latents,val_labels = export_latents(w_model,train_dataloader,val_dataloader, DEVICE)
+    # # train_latents,train_labels,val_latents,val_labels = export_latents(w_model,test_dataloader,test_dataloader, DEVICE)
+    # test_latents,test_labels,_,_ = export_latents(w_model,test_dataloader,test_dataloader, DEVICE)
+    train_latents,train_labels,val_latents,val_labels = export_latents(w_model,train_dataloader,val_dataloader, l_grain, n_grains, hop_size, BATCH_SIZE,DEVICE)
+    test_latents,test_labels, _, _ = export_latents(w_model,test_dataloader,test_dataloader, l_grain, n_grains, hop_size, TEST_SIZE, DEVICE)
 
     print("--- Creating dataset")
 
@@ -183,6 +173,7 @@ if __name__ == "__main__":
                 # print("--- ", z_hat.shape)
 
                 # Compute loss
+                # [bs, latent_size]
                 rec_loss = mse_loss(z_hat,latent) # we train with a deterministic output
                 # print("--- MSE Loss: ", rec_loss)
                 # TODO: compare with gaussian output and KLD distance ?

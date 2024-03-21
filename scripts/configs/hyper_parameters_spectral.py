@@ -36,7 +36,7 @@ BETA_STEPS = 500
 # AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/audio"
 ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/esc50_seaWaves.csv"
 AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs"
-TEST_AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs/small"
+TEST_AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs/single"
 # AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/drone_dataset/audio/5secs/small"
 
 # FRAME_SIZE = 1024
@@ -64,14 +64,14 @@ TARGET_LENGTH = 5.0
 HIGH_PASS_FREQ = 50
 
 # Mode and directories
-WANDB = True
+WANDB = False
 TRAIN = True
-EXPORT_LATENTS = False
+EXPORT_LATENTS = True
 SAVE_CHECKPOINT = False
 CHECKPOINT_REGULAIRTY = 10
 LOAD_CHECKPOINT = False
 VIEW_LATENT = False
-SAVE_RECONSTRUCTIONS = True
+SAVE_RECONSTRUCTIONS = False
 COMPARE_ENERGY = False
 SAVE_DIR = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints"
 # SAVE_DIR = f"/home/ICTDOMAIN/d22127229/code/github/neuralGranularSynthesis/models/saved_models"

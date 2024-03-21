@@ -5,6 +5,7 @@ import seaborn as sns
 import soundfile as sf
 from sklearn.decomposition import PCA
 import numpy as np
+import torch.nn as nn
 from torch.nn import functional as F
 import torchaudio
 import librosa
@@ -12,7 +13,10 @@ from scipy import fft, signal
 import torch_dct as dct
 # from dsp_components import amp_to_impulse_response_w_phase
 import utils.dsp_components as dsp
-from scripts.configs.hyper_parameters_waveform import NORMALIZE_OLA, RECONSTRUCTION_SAVE_DIR, SAMPLE_RATE
+
+# TODO Should really pass these as variables to be safer
+from scripts.configs.hyper_parameters_spectral import NORMALIZE_OLA, RECONSTRUCTION_SAVE_DIR, SAMPLE_RATE, NUM_CC
+# from scripts.configs.hyper_parameters_waveform import NORMALIZE_OLA, RECONSTRUCTION_SAVE_DIR, SAMPLE_RATE
 
 
 # Sample from a gaussian distribution
@@ -71,17 +75,53 @@ def plot_latents(train_latents,train_labels, classes,export_dir):
     plt.close("all")
 
 # Compute the latens
-def compute_latents(w_model,dataloader,device):
-    tmploader = torch.utils.data.DataLoader(dataloader.dataset, batch_size=5, shuffle=False, drop_last=False)
+def compute_latents(w_model, dataloader, l_grain, n_grains, hop_size, batch_size, device):
+    tmploader = torch.utils.data.DataLoader(dataloader.dataset, batch_size=batch_size, shuffle=False, drop_last=False)
     dataset_latents = []
     dataset_labels = []
-    for i,batch in enumerate(tmploader):
+    for batch in tmploader:
         with torch.no_grad():
-            audio,labels = batch
-            bs = audio.shape[0]
-            mu = w_model.encode(audio.to(device))["mu"].cpu()
+            waveform, labels = batch
+            bs = waveform.shape[0]
+
+            # ---------- Turn Waveform into grains ----------
+            ola_window = signal.hann(l_grain,sym=False)
+            ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+            ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+            ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+            ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(device)
+
+            slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(device)
+            mb_grains = F.conv1d(waveform.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
+            mb_grains = mb_grains.permute(0,2,1)
+            bs = mb_grains.shape[0]
+            # repeat the overlap add windows acrosss the batch and apply to the grains
+            mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+            grain_fft = torch.fft.rfft(mb_grains)
+            # ---------- Turn Waveform into grains END ----------
+
+            # ---------- Get CCs, or MFCCs and invert ----------
+            # CCs
+            grain_db = 20*dsp.safe_log10(torch.abs(grain_fft))
+            cepstral_coeff = dct.dct(grain_db)
+            # Take the first n_cc cepstral coefficients
+            cepstral_coeff[:, :,NUM_CC:] = 0
+            inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+
+            # MFCCs  - use librosa function as they are more reliable
+            # grain_fft = grain_fft.permute(0,2,1)
+            # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+            # mfccs = dct.dct(grain_mel)
+            # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
+            # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
+            # inv_mfccs = inv_mfccs.permute(0,2,1)
+
+            # ---------- Get CCs, or MFCCs and invert END ----------
+
+            # ---------- Run Model ----------
+            mu = w_model.encode(inv_cep_coeffs)["mu"].cpu()
             # mu of shape [bs*n_grains,z_dim]
-            mu = mu.reshape(bs,w_model.n_grains,w_model.z_dim)
+            mu = mu.reshape(bs,n_grains,w_model.z_dim)
             dataset_latents.append(mu)
             dataset_labels.append(labels)
     dataset_latents = torch.cat(dataset_latents,0)
@@ -92,9 +132,9 @@ def compute_latents(w_model,dataloader,device):
     return dataset_latents,dataset_labels
 
 # Export the latents
-def export_latents(w_model,train_dataloader,test_dataloader, device):
-    train_latents,train_labels = compute_latents(w_model,train_dataloader, device)
-    test_latents,test_labels = compute_latents(w_model,test_dataloader, device)
+def export_latents(w_model, train_dataloader, test_dataloader, l_grain, n_grains, hop_size, batch_size, device):
+    train_latents,train_labels = compute_latents(w_model,train_dataloader, l_grain, n_grains, hop_size, batch_size, device)
+    test_latents,test_labels = compute_latents(w_model,test_dataloader, l_grain, n_grains, hop_size, batch_size, device)
     return train_latents,train_labels,test_latents,test_labels
 
 # Safe log for cases where x is very close to zero
