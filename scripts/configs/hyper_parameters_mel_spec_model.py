@@ -15,10 +15,10 @@ print("DEVICE: ", DEVICE)
 DATALOADER_DEVICE = torch.device('cpu')
 
 # Hyper Parameters
-BATCH_SIZE = 1
+BATCH_SIZE = 6
 TEST_SIZE = 1
-EPOCHS = 10000
-LEARNING_RATE = 0.0005
+EPOCHS = 100000
+LEARNING_RATE = 0.001
 LATENT_SIZE = 256
 ENV_DIST = 0
 KERNEL_SIZE = 3
@@ -34,7 +34,7 @@ BETA_STEPS = 1
 # ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/metadata/UrbanSound8K.csv"
 # AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/audio"
 ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/esc50_seaWaves.csv"
-AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs/small"
+AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs"
 
 # FRAME_SIZE = 1024
 # HOP_LENGTH = 512
@@ -46,16 +46,16 @@ NUM_CC = 128
 NORMALIZE_OLA = True
 POSTPROC_KER_SIZE = 65
 POSTPROC_CHANNELS = 5
-# CONV_FILTERS = (512, 256, 128, 64, 32)
-# CONV_KERNELS = (3, 3, 3, 3, 3)
-# CONV_STRIDES = (2, 2, 2, 2, (2,1))
-# CONV_PADDINGS = (3//2, 3//2, 3//2, 3//2, 3//2)
-RELU = torch.nn.LeakyReLU
-NUM_STFT_FRAMES = 800
-CONV_FILTERS = (128, 64, 64, 64, 32)
+CONV_FILTERS = (512, 256, 128, 64, 32)
 CONV_KERNELS = (3, 3, 3, 3, 3)
 CONV_STRIDES = (2, 2, 2, 2, (2,1))
 CONV_PADDINGS = (3//2, 3//2, 3//2, 3//2, 3//2)
+RELU = torch.nn.LeakyReLU
+NUM_STFT_FRAMES = 800
+# CONV_FILTERS = (256, 128)
+# CONV_KERNELS = (3, 3)
+# CONV_STRIDES = (2, (2,1))
+# CONV_PADDINGS = (3//2, 3//2)
 
 # Grain Params
 # Ratio of hop size to grain length
@@ -71,8 +71,8 @@ HIGH_PASS_FREQ = 50
 WANDB = False
 TRAIN = True
 EXPORT_LATENTS = False
-SAVE_CHECKPOINT = False
-CHECKPOINT_REGULAIRTY = 1000
+SAVE_CHECKPOINT = True
+CHECKPOINT_REGULAIRTY = 100
 LOAD_CHECKPOINT = False
 VIEW_LATENT = False
 SAVE_RECONSTRUCTIONS = True
