@@ -142,87 +142,61 @@ class MLP(nn.Module):
 #############
 # Models
 #############
-
+    
 # Waveform encoder is a little similar to wavenet architecture with some changes
-class WaveformEncoder(nn.Module):
+class MagSpecEncoder(nn.Module):
 
     def __init__(self,
                     n_grains,
                     hop_size,
-                    kernel_size=9,
-                    channels=128,
-                    stride=4,
-                    n_convs=3,
-                    num_samples=2048,
+                    n_cc=30,
+                    hidden_size=512,
+                    bidirectional=False,
+                    z_dim = 128,
                     l_grain=2048,
-                    h_dim=512,
-                    z_dim=128
                     ):
-        super(WaveformEncoder, self).__init__()
+        super(MagSpecEncoder, self).__init__()
 
 
         self.n_grains = n_grains
         self.l_grain = l_grain
         # Set the target length based on hardcodded equation (need to understand why this eq is choosen)
         self.tar_l = int((n_grains+3)/4*l_grain)
-
-        # define the slice_kernel, this is used in convolution to expand out the grains.
-        # TODO look into this a little more, what is eye, identity matrix?
-        self.slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False)
-
+        self.fft_size = (l_grain // 2) + 1
+        self.n_cc = n_cc 
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        self.z_dim = z_dim
+        self.hidden_size = hidden_size
         self.hop_size = hop_size
+        self.flatten_size = self.fft_size * 861
 
-        # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
-        # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
-        ola_window = signal.hann(l_grain,sym=False)
-        ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
-        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
-        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-        self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
+        # Flatten
+        self.flatten = nn.Flatten()
 
-        encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
-        encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
-        # print(encoder_convs)
-        self.encoder_convs = nn.ModuleList(encoder_convs)
-
-        self.flatten_size = int(channels*l_grain/(stride**n_convs))
-        self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
-        self.mu = nn.Linear(z_dim,z_dim)
-        self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        # Dense Layer
+        self.mu = nn.Linear(self.flatten_size,z_dim)
+        self.logvar = nn.Linear(self.flatten_size,z_dim)
+        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
 
     def encode(self, x):
 
-        # print("Running necoder")
+        # Move all this to the data loasder ??
+        # hann_window = torch.hann_window(1024)
+        # stft = torch.stft(x, n_fft = 1024,  hop_length=self.hop_size, window=hann_window, return_complex = True)
+        # pow_spec = np.abs(stft)**2
+        # # Normalsie
+        # pow_spec = (pow_spec - pow_spec.min()) / (pow_spec.max() - pow_spec.min())
 
-        # This turns our sample into overlapping grains
-        mb_grains = F.conv1d(x.unsqueeze(1),self.slice_kernel,stride=self.hop_size,groups=1,bias=None)
-        mb_grains = mb_grains.permute(0,2,1)
-        bs = mb_grains.shape[0]
-        # repeat the overlap add windows acrosss the batch and apply to the grains
-        mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
-        # merge the grain dimension into batch dimension
-        # mb_grains of shape [bs*n_grains,1,l_grain]
-        mb_grains = mb_grains.reshape(bs*self.n_grains,self.l_grain).unsqueeze(1)
+        #Flatten
+        z = self.flatten(x)
 
-        # Convolutional layers - feature extraction
-        # x --> h
-        for conv in self.encoder_convs:
-            mb_grains = conv(mb_grains)
-            # print("output conv size",mb_grains.shape)
+        #Dense Layers
+        mu = self.mu(z)
+        logvar = self.logvar(z)
 
-        # flatten??
-        mb_grains = mb_grains.view(-1,self.flatten_size)
-
-        # Linear layer
-        h = self.encoder_linears(mb_grains)
-
-        # h --> z
-        # h of shape [bs*n_grains,z_dim]
-        mu = self.mu(h)
-        logvar = self.logvar(h)
-
-        # z of shape [bs*n_grains,z_dim]
         z = sample_from_distribution(mu, logvar)
+ 
         return z, mu, logvar
 
     def forward(self, audio):
@@ -232,210 +206,154 @@ class WaveformEncoder(nn.Module):
         return z, mu, logvar
 
 # Waveform decoder consists simply of dense layers.
-class WaveformDecoder(nn.Module):
+class MagSpecDecoder(nn.Module):
 
     def __init__(self,
                     n_grains,
                     hop_size,
                     normalize_ola,
-                    pp_chans,
-                    pp_ker,
-                    n_linears=3,
-                    l_grain = 2048,
-                    h_dim=512,
-                    z_dim=128
+                    # pp_chans,
+                    # pp_ker,
+                    z_dim,
+                    n_mlp_units=512,
+                    n_mlp_layers = 3,
+                    relu = nn.ReLU,
+                    inplace = True,
+                    hidden_size = 512,
+                    bidirectional = False,
+                    n_freq = 513,
+                    l_grain = 1024,
                     ):
-        super(WaveformDecoder, self).__init__()
+        super(MagSpecDecoder, self).__init__()
+
 
         self.n_grains = n_grains
         self.l_grain = l_grain
         self.filter_size = l_grain//2+1
         self.tar_l = int((n_grains+3)/4*l_grain)
         self.normalize_ola = normalize_ola
-        self.pp_chans = pp_chans
+        # self.pp_chans = pp_chans
+        self.z_dim = z_dim
+        self.n_mlp_units = n_mlp_units
+        self.n_mlp_layers = n_mlp_layers
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        self.n_freq = n_freq
+        self.relu = relu
+        self.inplace = inplace
+        self.hop_size = hop_size
 
-        decoder_linears = [linear_block(z_dim,h_dim)]
-        decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
-        decoder_linears += [nn.Linear(h_dim,self.filter_size)]
-        self.decoder_linears = nn.Sequential(*decoder_linears)
+        self.flatten_size = self.filter_size * 861
 
-        self.filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
+        self.dense =  nn.Sequential(nn.Linear(self.z_dim, self.flatten_size), nn.Sigmoid())
 
-        # Overlap and Add windows for each grain, first half of first grain has no window (ie all values = 1) and 
-        # last half of the last grain has no window (ie all values = 1), to allow preserverance of attack and decay.
-        ola_window = signal.hann(l_grain,sym=False)
-        ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
-        ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
-        ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
-        self.ola_windows = nn.Parameter(ola_windows,requires_grad=False)
-        print(self.ola_windows.shape)
-
-        # Folder
-        # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
-        # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-        self.ola_folder = nn.Fold((self.tar_l,1),(l_grain,1),stride=(hop_size,1))
-
-        # Normalize OLA
-        # This attempts to normalize the energy by dividing by the number of 
-        # overlapping grains used when folding to get each point in times energy (amplitude).
-        if normalize_ola:
-            unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-            input_ones = torch.ones(1,1,self.tar_l,1)
-            ola_divisor = self.ola_folder(unfolder(input_ones)).squeeze()
-            self.ola_divisor = nn.Parameter(ola_divisor,requires_grad=False)
-        
-        # TODO Look at NGS paper, and ref paper as to how and why this works.
-        self.post_pro = nn.Sequential(nn.Conv1d(pp_chans, 1, pp_ker, padding=pp_ker//2),nn.Softsign())
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
-        filter_coeffs = self.decoder_linears(z)
 
-        # What does this do??
-        filter_coeffs = mod_sigmoid(filter_coeffs)
-        orig_filter_coeffs = filter_coeffs
-        # filter_coeffs = mod_sigmoid(filter_coeffs - 5)
+        # Step 1
+        h = self.dense(z)
 
-        # CC part
-        filter_coeffs[:, 128:] = 0.0
+        # Rehsape
+        h = h.reshape(h.shape[0], self.filter_size, 861)
 
-        # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
-        # NOTE is there a torch implementation of this, bit of a bottleneck if not?
-        # NOTE issue with gradient flowwing back
-        # NOTE changed this from idct_2d to idct
-        # inv_filter_coeffs = (dct.idct(filter_coeffs))
-        inv_filter_coeffs = 10**(dct.idct(filter_coeffs) / 20)
-
-        # inv_filter_coeffs = torch.from_numpy(inv_cepstral_coeff, device=filter_coeffs.device)
-
-        # try predicting only the needed coefficients.
-        # cc = torch.nn.functional.pad(filter_coeffs, (0, (2048/2 +1) - filter_coeffs.shape[1]))
+        # transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = self.hop_size, power=2)
+        # audio_recon = transform(h)
         
-        # audio = noise_filtering(inv_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
-        audio = noise_filtering(orig_filter_coeffs, self.filter_window, self.n_grains, self.l_grain)
-
-
-        # Check if number of grains wanted is entered, else use the original
-        if n_grains is None:
-            audio = audio.reshape(-1,self.n_grains,self.l_grain)
-        else:
-            audio = audio.reshape(-1,n_grains,self.l_grain)
-        bs = audio.shape[0]
-
-        # Check if an overlapp add window has been passed, if not use that used in encoding.
-        if ola_windows is None:
-            audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
-        else:
-            audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
-
-
-        # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-        # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-        # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-        # since kernel size is l_grain, this is needed in the second dimension.
-        if ola_folder is None:
-            audio_sum = self.ola_folder(audio.permute(0,2,1)).squeeze()
-        else:
-            audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
-
-        # Normalise the energy values across the audio samples
-        if self.normalize_ola:
-            if ola_divisor is None:
-                # Normalises based on number of overlapping grains used in folding per point in time.
-                audio_sum = audio_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
-            else:
-                audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
-
-        # NOTE Removed the post processing step for now
-        # This module applies a multi-channel temporal convolution that
-        # learns a parallel set of time-invariant FIR filters and improves
-        # the audio quality of the assembled signal.
-        audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
-
-        return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
+        return h
+        # return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
 
     def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
 
         audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
 
         return audio
-
-class WaveformVAE(nn.Module):
+    
+class MagSpecVAE(nn.Module):
 
     def __init__(self,
                     n_grains,
                     hop_size,
                     normalize_ola,
-                    pp_chans,
-                    pp_ker,
-                    kernel_size=9,
-                    channels=128,
-                    stride=4,
-                    n_convs=3,
-                    n_linears = 3,
-                    num_samples=2048,
-                    l_grain = 2048,
-                    h_dim=512,
-                    z_dim=128
+                    n_cc=30,
+                    hidden_size=512,
+                    bidirectional=False,
+                    z_dim = 128,
+                    l_grain=1024,                    
+                    # pp_chans,
+                    # pp_ker,
+                    n_mlp_units=512,
+                    n_mlp_layers = 3,
+                    relu = nn.ReLU,
+                    inplace = True,
+                    n_freq = 513,
+                    n_linears=3,
+                    h_dim=512
                     ):
-        super(WaveformVAE, self).__init__()
-
-        self.z_dim = z_dim
-        self.n_grains = n_grains
+        super(MagSpecVAE, self).__init__()
 
         # Encoder and decoder components
-        self.Encoder = WaveformEncoder(
-                    hop_size=hop_size,
-                    n_grains=n_grains,
-                    kernel_size=kernel_size,
-                    channels=channels,
-                    stride=stride,
-                    n_convs=n_convs,
-                    num_samples=num_samples,
-                    l_grain=l_grain,
-                    h_dim=h_dim,
-                    z_dim=z_dim)
-        self.Decoder = WaveformDecoder(
-                    n_grains=n_grains,
-                    hop_size=hop_size,
-                    normalize_ola=normalize_ola,
-                    pp_chans=pp_chans,
-                    pp_ker=pp_ker,
-                    n_linears=n_linears,
-                    l_grain=l_grain,
-                    h_dim=h_dim,
-                    z_dim=z_dim)
+        self.Encoder = MagSpecEncoder(
+                        n_grains = n_grains,
+                        hop_size = hop_size,
+                        n_cc = n_cc,
+                        hidden_size = hidden_size,
+                        bidirectional = bidirectional,
+                        z_dim = z_dim,
+                        l_grain = l_grain,
+                    )
+        self.Decoder = MagSpecDecoder(
+                        n_grains = n_grains,
+                        hop_size = hop_size,
+                        normalize_ola = normalize_ola,
+                        # pp_chans,
+                        # pp_ker,
+                        z_dim = z_dim,
+                        n_mlp_units = n_mlp_units,
+                        n_mlp_layers = n_mlp_layers,
+                        relu = relu,
+                        inplace = inplace,
+                        hidden_size = hidden_size,
+                        bidirectional = bidirectional,
+                        n_freq = n_freq,
+                        l_grain = l_grain,
+                    )
 
         # Number of convolutional layers
     def encode(self, x):
 
          # x ---> z
+        # z= self.Encoder(x);
         z, mu, log_variance = self.Encoder(x);
     
+        # return {"z":z} 
         return {"z":z,"mu":mu,"logvar":log_variance} 
 
     def decode(self, z):
             
-        x_hat, spec = self.Decoder(z)
+        x_hat = self.Decoder(z)
             
-        return x_hat, spec
+        return {"audio":x_hat}
 
     def forward(self, x, sampling=True):
 
         # x ---> z
-        
         z, mu, log_variance = self.Encoder(x);
         
-
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
-            x_hat, spec = self.Decoder(z)
+            x_hat = self.Decoder(z)
         else:
-            x_hat, spec = self.Decoder(mu)
+            x_hat= self.Decoder(mu)
 
-        return x_hat, z, mu, log_variance, spec
-    
+        return x_hat, z, mu, log_variance
+
+
+###########
+# Old Model
+###########
+
 # Waveform encoder is a little similar to wavenet architecture with some changes
 class CepstralCoeffsEncoder(nn.Module):
 
@@ -456,7 +374,7 @@ class CepstralCoeffsEncoder(nn.Module):
         # Set the target length based on hardcodded equation (need to understand why this eq is choosen)
         self.tar_l = int((n_grains+3)/4*l_grain)
 
-        self.n_cc = n_cc
+        self.n_cc = n_cc 
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
         self.z_dim = z_dim
@@ -483,10 +401,12 @@ class CepstralCoeffsEncoder(nn.Module):
         # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
 
         # Normalise with learnable scale and shift
-        self.norm = nn.InstanceNorm1d(self.n_cc, affine=True)
+        # self.norm = nn.InstanceNorm1d(self.n_cc, affine=True)
+        self.norm = nn.InstanceNorm1d(513, affine=True)
 
         self.gru = nn.GRU(
-            input_size=self.n_cc,
+            # input_size=self.n_cc,
+            input_size=513,
             hidden_size=self.hidden_size,
             num_layers=1,
             batch_first=True,
@@ -503,32 +423,34 @@ class CepstralCoeffsEncoder(nn.Module):
 
     def encode(self, x):
 
-        # Step 1 - Get cepstral coefficients from audio
-        # Alternative could be to use torchaudio.transforms.LFCC?
-        # transform = torchaudio.transforms.LFCC(
-        #     sample_rate=44100,
-        #     n_lfcc=128,
-        #     speckwargs={"n_fft": self.l_grain, "hop_length": self.hop_size, "center": False},
-        # )
-        # lfcc = transform(x)
+        hann_window = torch.hann_window(1024)
+        test_stft = torch.stft(x, n_fft = 1024,  hop_length=self.hop_size, window=hann_window, return_complex = True)
+        # print("STFT Shape: ", test_stft.shape)
+        # print(torch.abs(test_stft).sum())
+        # grain_db = 20*torch.log10(torch.abs(test_stft))
+        # print(grain_db.sum())
+        # cepstral_coeff = dct.dct(grain_db)
+        # cepstral_coeff = torch.from_numpy(cepstral_coeff)
+        # print("CC Shape 1: ", cepstral_coeff.shape)
+        # cepstral_coeff = cepstral_coeff.permute(0, 2, 1)
+        # # cepstral_coeff[:, :, 513:] = 0
+        # print("CC Shape 2: ", cepstral_coeff.shape)
+        # cepstral_coeff = cepstral_coeff.permute(0, 2, 1)
+        # print("CC Shape 3: ", cepstral_coeff.shape)
+        # cepstral_coeff = cepstral_coeff.cpu().numpy()
+        # print(dct.idct(cepstral_coeff).sum())
+        # inv_cepstral_coeff = 10**(dct.idct(cepstral_coeff) / 20)
+        # print(inv_cepstral_coeff.sum())
+        # transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = self.hop_size, power=2)
+        # recon_audio = transform(torch.abs(test_stft)**2)
+        # # recon_audio = torch.from_numpy(librosa.griffinlim(inv_cepstral_coeff, n_fft = 1024, hop_length = self.hop_size))
+        # # torchaudio.save(f'recon_audio.wav', recon_audio, 44100)
 
-        # This turns our sample into overlapping grains
-        mb_grains = F.conv1d(x.unsqueeze(1),self.slice_kernel,stride=self.hop_size,groups=1,bias=None)
-        mb_grains = mb_grains.permute(0,2,1)
-        bs = mb_grains.shape[0]
-        # repeat the overlap add windows acrosss the batch and apply to the grains
-        mb_grains = mb_grains*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
-        grain_fft = torch.fft.rfft(mb_grains)
-        grain_db = 20*torch.log10(torch.abs(grain_fft))
-        cepstral_coeff = dct.dct(grain_db)
-        # Take the first 128 cepstral coefficients
-        cepstral_coeff = cepstral_coeff[:,:,:self.n_cc]
+
 
         # Step 2 - Normalize
-        # perform permutation to order as [bs, cc, grains], so that s scale and shift it learned for each CC
-        cepstral_coeff = cepstral_coeff.permute(0,2,1)
-        z = self.norm(cepstral_coeff)
-        # permute back to [bs, grains, cc]
+        z = self.norm(torch.abs(test_stft)**2)
+        # permute to [bs, grains, cc]
         z = z.permute(0, 2, 1)
 
         # Step 3 - RNN
@@ -597,8 +519,8 @@ class CepstralCoeffsDecoder(nn.Module):
                     inplace = True,
                     hidden_size = 512,
                     bidirectional = False,
-                    n_freq = 1025,
-                    l_grain = 2048,
+                    n_freq = 513,
+                    l_grain = 1024,
                     ):
         super(CepstralCoeffsDecoder, self).__init__()
 
@@ -617,6 +539,7 @@ class CepstralCoeffsDecoder(nn.Module):
         self.n_freq = n_freq
         self.relu = relu
         self.inplace = inplace
+        self.hop_size = hop_size
 
         # self.mlp_z = MLP(n_input=self.z_dim, n_units=self.n_mlp_units, n_layer=self.n_mlp_layers)
         mlp_z = [nn.Sequential(nn.Linear(self.z_dim,self.n_mlp_units),nn.LayerNorm(self.n_mlp_units),self.relu(inplace=self.inplace))]
@@ -689,63 +612,11 @@ class CepstralCoeffsDecoder(nn.Module):
 
         h = mod_sigmoid(h)
 
-        # return the spectral shape 
-        # CC part
-        # filter_coeffs = h
-        # print("Filter shape: ", filter_coeffs.shape)
-        # filter_coeffs[:, 128:] = 0.0
+        # reshape int
+        h = h.permute(0, 2, 1)
 
-        # # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
-        # # NOTE is there a torch implementation of this, bit of a bottleneck if not?
-        # # NOTE issue with gradient flowwing back
-        # # NOTE changed this from idct_2d to idct
-        # # inv_filter_coeffs = (dct.idct(filter_coeffs))
-        # inv_filter_coeffs = 10**(dct.idct(filter_coeffs) / 20)
-
-        # Step 5 - Noise Filtering
-        # Reshape for noise filtering - TODO Look if this is necesary
-        h = h.reshape(h.shape[0]*h.shape[1],h.shape[2])
-
-        # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-        audio = noise_filtering(h, self.filter_window, self.n_grains, self.l_grain)
-
-        # Check if number of grains wanted is entered, else use the original
-        if n_grains is None:
-            audio = audio.reshape(-1,self.n_grains,self.l_grain)
-        else:
-            audio = audio.reshape(-1,n_grains,self.l_grain)
-        bs = audio.shape[0]
-
-        # Check if an overlapp add window has been passed, if not use that used in encoding.
-        if ola_windows is None:
-            audio = audio*(self.ola_windows.unsqueeze(0).repeat(bs,1,1))
-        else:
-            audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
-
-
-        # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-        # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-        # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-        # since kernel size is l_grain, this is needed in the second dimension.
-        if ola_folder is None:
-            audio_sum = self.ola_folder(audio.permute(0,2,1)).squeeze()
-        else:
-            audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
-
-        # Normalise the energy values across the audio samples
-        if self.normalize_ola:
-            if ola_divisor is None:
-                # Normalises based on number of overlapping grains used in folding per point in time.
-                audio_sum = audio_sum/self.ola_divisor.unsqueeze(0).repeat(bs,1)
-            else:
-                audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
-
-        # NOTE Removed the post processing step for now
-        # This module applies a multi-channel temporal convolution that
-        # learns a parallel set of time-invariant FIR filters and improves
-        # the audio quality of the assembled signal.
-        # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
-
+        transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = self.hop_size, power=2)
+        audio_sum = transform(h)
 
         return audio_sum
         # return audio_sum, inv_filter_coeffs.reshape(-1, self.n_grains, inv_filter_coeffs.shape[1]) 
@@ -767,14 +638,14 @@ class CepstralCoeffsAE(nn.Module):
                     hidden_size=512,
                     bidirectional=False,
                     z_dim = 128,
-                    l_grain=2048,                    
+                    l_grain=1024,                    
                     # pp_chans,
                     # pp_ker,
                     n_mlp_units=512,
                     n_mlp_layers = 3,
                     relu = nn.ReLU,
                     inplace = True,
-                    n_freq = 1025,
+                    n_freq = 513,
                     n_linears=3,
                     h_dim=512
                     ):

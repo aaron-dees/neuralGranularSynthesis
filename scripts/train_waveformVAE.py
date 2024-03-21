@@ -52,7 +52,20 @@ if __name__ == "__main__":
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = CepstralCoeffsVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, pp_chans=POSTPROC_CHANNELS, pp_ker=POSTPROC_KER_SIZE, l_grain=l_grain, n_cc=NUM_CC)
+    model = WaveformVAE(n_grains = n_grains,
+                    hop_size=hop_size,
+                    normalize_ola=NORMALIZE_OLA,
+                    pp_chans=POSTPROC_CHANNELS,
+                    pp_ker=POSTPROC_KER_SIZE,
+                    kernel_size=9,
+                    channels=128,
+                    stride=4,
+                    n_convs=3,
+                    n_linears=3,
+                    num_samples=l_grain,
+                    l_grain=l_grain,
+                    h_dim=512,
+                    z_dim=LATENT_SIZE)
     
     model.to(DEVICE)
 

@@ -1,6 +1,7 @@
 import torch 
 from torchaudio.transforms import Spectrogram,MelSpectrogram
 import torch.nn as nn
+import librosa
 
 from utils.utilities import safe_log
 
@@ -21,6 +22,36 @@ def compute_kld(mu, logvar):
     kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim = 1), dim = 0)
 
     return kld_loss
+
+class convertToAudioAuto(torch.autograd.Function):
+    """Both forward and backward are static methods."""
+
+    @staticmethod
+    def forward(ctx, input, samplerate, l_grain, hop_size):
+        """
+        In the forward pass we receive a Tensor containing the input and return
+        a Tensor containing the output. ctx is a context object that can be used
+        to stash information for backward computation. You can cache arbitrary
+        objects for use in the backward pass using the ctx.save_for_backward method.
+        """
+        return torch.from_numpy(librosa.feature.inverse.mel_to_audio(input.cpu().detach().numpy(), sr = samplerate, n_fft = l_grain, hop_length=hop_size))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        In the backward pass we receive a Tensor containing the gradient of the loss
+        with respect to the output, and we need to compute the gradient of the loss
+        with respect to the inputs: here input and weights
+        """
+        grad_input = torch.ones(1, 256, 800)
+        return grad_input, None, None, None 
+
+class convertToAudioMod(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fn = convertToAudioAuto.apply
+    def forward(self, input, samplerate, l_grain, hop_size):
+        return self.fn(input, samplerate, l_grain, hop_size)
 
 class spectral_distances(nn.Module):
     def __init__(self,stft_scales=[2048, 1024, 512, 256, 128], mel_scales=[2048, 1024], spec_power=1, mel_dist=True, log_dist=0, sr=16000, device="cpu"):

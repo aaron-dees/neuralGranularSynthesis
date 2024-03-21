@@ -1,11 +1,14 @@
 import sys
 sys.path.append('../')
 
-from models.noiseFiltering_models.waveform_model import WaveformVAE, CepstralCoeffsVAE
+from models.noiseFiltering_models.waveform_model import WaveformVAETest
 from models.dataloaders.waveform_dataloaders import make_audio_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
 from scripts.configs.hyper_parameters_waveform import *
 from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
+from utils.dsp_components import safe_log10
+from torch.nn import functional as F
+import torch_dct as dct
 
 
 import torch
@@ -17,6 +20,7 @@ import time
 import wandb
 import numpy as np
 from datetime import datetime
+from scipy import signal
 
 print("--- Device: ", DEVICE)
 # print("--- Venv: ", sys.prefix)
@@ -52,7 +56,20 @@ if __name__ == "__main__":
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = CepstralCoeffsVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, pp_chans=POSTPROC_CHANNELS, pp_ker=POSTPROC_KER_SIZE, l_grain=l_grain, n_cc=NUM_CC)
+    model = WaveformVAETest(n_grains = n_grains,
+                    hop_size=hop_size,
+                    normalize_ola=NORMALIZE_OLA,
+                    pp_chans=POSTPROC_CHANNELS,
+                    pp_ker=POSTPROC_KER_SIZE,
+                    kernel_size=9,
+                    channels=128,
+                    stride=4,
+                    n_convs=3,
+                    n_linears=3,
+                    num_samples=l_grain,
+                    l_grain=l_grain,
+                    h_dim=512,
+                    z_dim=LATENT_SIZE)
     
     model.to(DEVICE)
 
@@ -106,7 +123,7 @@ if __name__ == "__main__":
             print(f'Loss: {train_loss}')
 
         # TEST
-        accum_iter = 100
+        # accum_iter = 100
         # Model in training mode
 
         # Set spectral distances
@@ -145,8 +162,34 @@ if __name__ == "__main__":
                 waveform = Variable(waveform).to(DEVICE)                       # we are just intrested in just images
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
+
+                slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
+                mb_grains = F.conv1d(waveform.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
+                mb_grains = mb_grains.permute(0,2,1)
+                bs = mb_grains.shape[0]
+                # repeat the overlap add windows acrosss the batch and apply to the grains
+                ola_window = signal.hann(l_grain,sym=False)
+                ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+                ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+                ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+                ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
+                mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+                grain_fft = torch.fft.rfft(mb_grains)
+
+                # ---------- Turn Waveform into grains END ----------
+
+                # ---------- Get CCs, or MFCCs and invert ----------
+                # CCs
+                grain_db = 20*safe_log10(torch.abs(grain_fft))
+                cepstral_coeff = dct.dct(grain_db)
+                # Take the first n_cc cepstral coefficients
+                cepstral_coeff[:, :,NUM_CC:] = 0
+                inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+
                 # x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
-                x_hat, z, mu, log_variance = model(waveform)                 # forward pass: compute predicted outputs 
+                # x_hat, z, mu, log_variance = model(mb_grains)                 # forward pass: compute predicted outputs 
+                x_hat, z, mu, log_variance = model(inv_cep_coeffs)                 # forward pass: compute predicted outputs 
 
                 # Normalise the audio, as is done in dataloader.
                 # x_hat = x_hat / torch.max(torch.abs(x_hat))
@@ -204,8 +247,34 @@ if __name__ == "__main__":
                 for data in val_dataloader:
                     waveform, label = data 
                     waveform = waveform.to(DEVICE)
+
+                    slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
+                    mb_grains = F.conv1d(waveform.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
+                    mb_grains = mb_grains.permute(0,2,1)
+                    bs = mb_grains.shape[0]
+                    # repeat the overlap add windows acrosss the batch and apply to the grains
+                    ola_window = signal.hann(l_grain,sym=False)
+                    ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
+                    ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
+                    ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
+                    ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
+                    mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+                    grain_fft = torch.fft.rfft(mb_grains)
+
+                    # ---------- Turn Waveform into grains END ----------
+
+                    # ---------- Get CCs, or MFCCs and invert ----------
+                    # CCs
+                    grain_db = 20*safe_log10(torch.abs(grain_fft))
+                    cepstral_coeff = dct.dct(grain_db)
+                    # Take the first n_cc cepstral coefficients
+                    cepstral_coeff[:, :,NUM_CC:] = 0
+                    inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+
                     # x_hat, z = model(waveform)
-                    x_hat, z, mu, log_variance = model(waveform)
+                    # x_hat, z, mu, log_variance = model(mb_grains)
+                    x_hat, z, mu, log_variance = model(inv_cep_coeffs)
 
                     # Normalise the audio, as is done in dataloader.
                     # x_hat = x_hat / torch.max(torch.abs(x_hat))
@@ -241,12 +310,12 @@ if __name__ == "__main__":
 
             if SAVE_RECONSTRUCTIONS:
                 if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
-                    for i, signal in enumerate(x_hat):
+                    for i, recon_waveform in enumerate(x_hat):
                         # spec_loss = spec_dist(x_hat[i], waveforms[i])
                         # Check the energy differences
                         print("Saving ", i)
                         print("Loss: ", spec_loss)
-                        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', recon_waveform.unsqueeze(0).cpu(), SAMPLE_RATE)
                         torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
 
             # wandb logging

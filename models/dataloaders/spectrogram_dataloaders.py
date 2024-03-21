@@ -186,7 +186,7 @@ class ESC50WaveformDataset(torch.utils.data.Dataset):
         # return self.annotations.iloc[index, 0]
         return self.filenames[index]
     
-def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2):
+def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=1024,high_pass_freq=50,num_workers=2):
 
     print("-------- Creating Dataloaders --------")
     
@@ -198,22 +198,6 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     print("--- Cropping sample lengths from/to:\t",tar_l,tar_l//l_grain*l_grain)
     tar_l = int(tar_l//l_grain*l_grain)
 
-    # n_grains are the overlapping grains
-    #  - This looks like it is based on the hop_ratio
-    #  - I understand the multiplication by 4, but not so much the removal of 3
-    #  TODO - understand this fromulae 
-    print("--- Number of non-overlapping grains:\t",tar_l//l_grain)
-    n_grains = 0
-    if (hop_ratio*100 == 25) :
-        n_grains = 4*(tar_l//l_grain)-3
-    elif (hop_ratio*100 == 50) :
-        n_grains = 2*(tar_l//l_grain)-1
-    else :
-        print("--- !!! HOP RATIO ENTERED NOT VALID.")
- 
-
-    print("--- Number of overlapping grains:\t", n_grains)
-    
     classes = sorted(classes)
     train_datasets = []
     test_datasets = []
@@ -225,7 +209,6 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
         labels = []
         n_rejected = 0
         for file in files:
-            reject = 0
             data, samplerate = sf.read(file)
             if len(data.shape)>1:
                 # convert to mono
@@ -236,41 +219,32 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
                 print("--- !!! Read samplerate differs from target sample rate, resampling.")
                 data = librosa.resample(data, samplerate, sr)
 
-            # Mean normalise the grains
-            data -= np.mean(data)
-            if silent_reject[0]!=0 and np.max(np.abs(data))<silent_reject[0]:
-                reject = 1 # peak amplitude is too low
-            trim_pos = librosa.effects.trim(data, top_db=60, frame_length=1024, hop_length=128)[1]
-            if silent_reject[1]!=0 and (trim_pos[1]-trim_pos[0])<silent_reject[1]*tar_l:
-                reject = 1 # non-silent length is too low
-
-            if reject==0:
-                if len(data)<tar_l:
-                    # if loaded audio is less than target length, pad with zeros
-                    data = np.concatenate((data,np.zeros((tar_l-len(data)))))
-                else:
-                    # trim loaded audio to target length
-                    data = data[:tar_l]
-                
-                # TODO Lookup what a high pass bi-quad filter is
-                data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
-                
-                # Normalise amplitude between 0 and 1
-                if amplitude_norm or np.max(np.abs(data))>=1:
-                    print()
-                    data /= np.max(np.abs(data))
-                    data *= 0.9
-                
-                audios.append(data)
-                labels.append(i)
+            if len(data)<tar_l:
+                # if loaded audio is less than target length, pad with zeros
+                data = np.concatenate((data,np.zeros((tar_l-len(data)))))
             else:
-                n_rejected += 1
+                # trim loaded audio to target length
+                data = data[:tar_l]
+                
+            # TODO Lookup what a high pass bi-quad filter is
+            # data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
+            
+            # Get the power spec
+            hann_window = torch.hann_window(l_grain)
+            stft = torch.stft(torch.from_numpy(data), n_fft = l_grain,  hop_length=hop_size, window=hann_window, return_complex = True)
+            pow_spec = np.abs(stft)**2
         
-        print("--- Number of audio samples rejected:\t", n_rejected)
+            # Normalise amplitude between 0 and 1
+            pow_spec = (pow_spec - pow_spec.min()) / (pow_spec.max() - pow_spec.min())
 
+            
+            audios.append(pow_spec)
+            labels.append(i)
+        
         audios = torch.from_numpy(np.stack(audios,axis=0)).float()
         labels = torch.from_numpy(np.stack(labels,axis=0)).long()
         print("--- Dataset size:\t\t\t", audios.shape)
+        n_grains = audios.shape[2]
 
         n_samples = len(labels)
         n_train = int(n_samples*0.85)
@@ -289,3 +263,105 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     print("-------- Done Creating Dataloaders --------")
     
     return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes
+
+# See if I can make the stft windows a power of 2 for the spectrogram.
+def make_audio_dataloaders_mel_spec(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,n_mels=128,num_workers=2, n_stft_frames=800):
+
+    print("-------- Creating Dataloaders --------")
+    
+    # Calculate the hop size based on the ratio
+    hop_size = int(hop_ratio*l_grain)
+    tar_l = int(tar_l*sr)
+    # print("windows size?: ",  (tar_l + l_grain)//(l_grain - 3*l_grain//4) )
+   
+
+    # Cut the target length to that which alligns with grains size
+    print("--- Cropping sample lengths from/to:\t",tar_l,tar_l//l_grain*l_grain)
+    # tar_l = int(tar_l//l_grain*l_grain)
+
+    # TODO Hacky way to ensure that the number of stft frames is equally divisible the conv layers required.
+    test = (((tar_l + l_grain) // l_grain) * 4) - 3
+    print(test/32)
+
+    tar_l = int(((((n_stft_frames+3)/4)) * l_grain) - l_grain)
+    # print("windows size: ",  4*((tar_l+l_grain)//l_grain)-3)
+    # print("windows size: ",  (((((800+3)/4)) * l_grain) - l_grain))
+    # 800 frames
+
+    classes = sorted(classes)
+    train_datasets = []
+    test_datasets = []
+    
+    for i, class_label in enumerate(classes):
+        files = glob.glob(data_dir+"/*.wav")
+
+        audios = []
+        labels = []
+        n_rejected = 0
+        for file in files:
+            data, samplerate = sf.read(file)
+            if len(data.shape)>1:
+                # convert to mono
+                print("--- !!! Convering audio to mono")
+                data = data.swapaxes(1, 0)
+                data = librosa.to_mono(data)
+            if samplerate!=sr:
+                print("--- !!! Read samplerate differs from target sample rate, resampling.")
+                data = librosa.resample(data, samplerate, sr)
+
+            # Mean normalise the grains
+            # TODO Removed, but should this be added back?
+            # data -= np.mean(data)
+
+            if len(data)<tar_l:
+                # if loaded audio is less than target length, pad with zeros
+                data = np.concatenate((data,np.zeros((tar_l-len(data)))))
+            else:
+                # trim loaded audio to target length
+                data = data[:tar_l]
+                
+            # TODO Lookup what a high pass bi-quad filter is
+            # NOTE this seems to make a fairly big difference to the reconstructed mel audio
+            # data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
+                
+            # Normalise amplitude between 0 and 1
+            # if amplitude_norm or np.max(np.abs(data))>=1:
+            #     data /= np.max(np.abs(data))
+            #     data *= 0.9
+
+            # Get the power spec
+            mel_spec = librosa.feature.melspectrogram(y=data, sr = samplerate, n_fft = l_grain, hop_length=hop_size, n_mels=n_mels)
+            # mel_spec_transform = torchaudio.transforms.MelSpectrogram(sample_rate=samplerate, n_fft = l_grain, hop_length = hop_size, n_mels = n_mels)
+            # mel_spec = mel_spec_transform(torch.from_numpy(data).float())
+
+            print("Mel Min: ", mel_spec.min())
+            print("Mel Max: ", mel_spec.max())
+
+            # Normalise amplitude between 0 and 1
+            mel_spec = (mel_spec - mel_spec.min()) / (mel_spec.max() - mel_spec.min())
+            
+            audios.append(mel_spec)
+            labels.append(i)
+        
+        audios = torch.from_numpy(np.stack(audios,axis=0)).float()
+        labels = torch.from_numpy(np.stack(labels,axis=0)).long()
+        print("--- Dataset size:\t\t\t", audios.shape)
+        n_grains = audios.shape[2]
+
+        n_samples = len(labels)
+        n_train = int(n_samples*0.85)
+        dataset = torch.utils.data.TensorDataset(audios,labels)
+        train_dataset,test_dataset = torch.utils.data.random_split(dataset, [n_train, n_samples-n_train])
+        train_datasets.append(train_dataset)
+        test_datasets.append(test_dataset)
+    
+    train_dataset = torch.utils.data.ConcatDataset(train_datasets)
+    test_dataset = torch.utils.data.ConcatDataset(test_datasets)
+    print("--- Dataset train/test sizes:\t\t",len(train_dataset),len(test_dataset))
+    
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=num_workers)
+
+    print("-------- Done Creating Dataloaders --------")
+    
+    return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes, samplerate

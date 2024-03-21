@@ -1,10 +1,11 @@
 import sys
 sys.path.append('../')
 
-from models.noiseFiltering_models.waveform_model import WaveformVAE, CepstralCoeffsVAE
+from models.spectrogram_models.pow_spec_model import MagSpecVAE
 from models.dataloaders.waveform_dataloaders import make_audio_dataloaders
-from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
-from scripts.configs.hyper_parameters_waveform import *
+from models.dataloaders.spectrogram_dataloaders import make_audio_dataloaders
+from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
+from scripts.configs.hyper_parameters_mag_spec_model import *
 from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
 
 
@@ -46,13 +47,16 @@ if __name__ == "__main__":
 
 
     train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
+    print(tar_l)
+    print(n_grains)
+    print(l_grain)
 
     print("-----Dataset Loaded-----")
     # Test dataloader
     test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
 
-    model = CepstralCoeffsVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, pp_chans=POSTPROC_CHANNELS, pp_ker=POSTPROC_KER_SIZE, l_grain=l_grain, n_cc=NUM_CC)
+    model = MagSpecVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA, l_grain=l_grain)
     
     model.to(DEVICE)
 
@@ -78,9 +82,6 @@ if __name__ == "__main__":
         ########### 
 
         optimizer = torch.optim.Adam(model.parameters(),lr=LEARNING_RATE)
-        lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=4000)
-        # decayRate = 0.99
-        # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=decayRate)
 
         start_epoch = 0
         accum_iter = 0
@@ -148,12 +149,12 @@ if __name__ == "__main__":
                 # x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
                 x_hat, z, mu, log_variance = model(waveform)                 # forward pass: compute predicted outputs 
 
-                # Normalise the audio, as is done in dataloader.
-                # x_hat = x_hat / torch.max(torch.abs(x_hat))
-                # x_hat = x_hat * 0.9
+                # print(x_hat.sum())
 
                 # Compute loss
-                spec_loss = spec_dist(x_hat, waveform)
+
+                # spec_loss = spec_dist(x_hat, waveform)
+                spec_loss = calc_reconstruction_loss(waveform, x_hat)
                 if beta > 0:
                     kld_loss = compute_kld(mu, log_variance) * beta
                 else:
@@ -163,6 +164,9 @@ if __name__ == "__main__":
                     env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
                 else:
                     env_loss = 0.0
+
+                kld_loss = 0
+                env_loss = 0
 
                 loss = kld_loss + spec_loss + env_loss
                 # loss = spec_loss
@@ -178,10 +182,6 @@ if __name__ == "__main__":
                 running_env_loss += env_loss
 
                 accum_iter+=1
-
-            # Decay the learning rate
-            lr_scheduler.step()
-            new_lr = optimizer.param_groups[0]["lr"]
                 
             # get avg training statistics 
             train_loss = running_train_loss/len(train_dataloader) # does len(fsdd_dataloader) return the number of batches ?
@@ -207,12 +207,10 @@ if __name__ == "__main__":
                     # x_hat, z = model(waveform)
                     x_hat, z, mu, log_variance = model(waveform)
 
-                    # Normalise the audio, as is done in dataloader.
-                    # x_hat = x_hat / torch.max(torch.abs(x_hat))
-                    # x_hat = x_hat * 0.9
-
                     # Compute loss
-                    spec_loss = spec_dist(x_hat, waveform)
+                    # spec_loss = spec_dist(x_hat, waveform)
+                    spec_loss = calc_reconstruction_loss(waveform, x_hat)
+                    
                     if beta > 0:
                         kld_loss = compute_kld(mu, log_variance) * beta
                     else:
@@ -223,8 +221,11 @@ if __name__ == "__main__":
                     else:
                         env_loss = 0.0
 
+                    # For VAE
+                    kld_loss = 0
+                    env_loss = 0
+
                     loss = kld_loss + spec_loss + env_loss
-                    # loss = spec_loss 
 
                     running_val_loss += loss
                     running_kl_val_loss += kld_loss
@@ -239,23 +240,13 @@ if __name__ == "__main__":
 
             end = time.time()
 
-            if SAVE_RECONSTRUCTIONS:
-                if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
-                    for i, signal in enumerate(x_hat):
-                        # spec_loss = spec_dist(x_hat[i], waveforms[i])
-                        # Check the energy differences
-                        print("Saving ", i)
-                        print("Loss: ", spec_loss)
-                        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
-                        torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
-
             # wandb logging
             if WANDB:
                 wandb.log({"kl_loss": kl_loss, "spec_loss": train_spec_loss, "env_loss": env_loss, "loss": train_loss, "kl_val_loss": kl_val_loss, "spec_val_loss": spec_val_loss, "env_val_loss": env_val_loss, "val_loss": val_loss})
 
             print('Epoch: {}'.format(epoch+1),
             '\tStep: {}'.format(accum_iter+1),
-            '\t LR: {:.5f}'.format(new_lr),
+            '\t Beta: {:.5f}'.format(beta),
             '\tTraining Loss: {:.4f}'.format(train_loss),
             '\tValidations Loss: {:.4f}'.format(val_loss),
             '\tTime: {:.2f}s'.format(end-start))
@@ -307,6 +298,10 @@ if __name__ == "__main__":
 
         print("-------- Inference Mode --------")
 
+
+        model = MagSpecVAE(n_grains=n_grains, hop_size=hop_size, z_dim=LATENT_SIZE, normalize_ola=NORMALIZE_OLA,  l_grain=l_grain)
+
+
         ###########
         # Inference
         ########### 
@@ -329,23 +324,27 @@ if __name__ == "__main__":
 
             waveforms = waveforms.to(DEVICE)
 
-            x_hat, z, mu, log_variance = model(waveforms)                     # get sample outputs
+            x_hat, z, mu, logvar = model(waveforms)                     # get sample outputs
 
-            # Normalise the audio, as is done in dataloader.
-            x_hat = x_hat / torch.max(torch.abs(x_hat))
-            x_hat = x_hat * 0.9
+            transform = torchaudio.transforms.GriffinLim(n_fft = 1024, hop_length = hop_size, power=2)
+            audio_recon = transform(x_hat)
+            waveform_recon = transform(waveforms)
+            print(waveform_recon.shape)
 
-            spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
-            spec_loss = spec_dist(x_hat, waveforms)
+            print("Output: ",x_hat.shape)
+            print("Output: ",x_hat.shape)
+
+            # spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
+            # spec_loss = spec_dist(audio_recon, waveform_recon)
 
             print(x_hat.shape)
             print(waveforms.shape)
 
-            print("Spectral Loss: ", spec_loss)
+            # print("Spectral Loss: ", spec_loss)
 
             # print_spectral_shape(waveforms[0,:], spec[0,:,:].cpu().numpy(), hop_size, l_grain)
 
-            filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
+            # filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
 
         #     spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 
@@ -370,15 +369,16 @@ if __name__ == "__main__":
             if SAVE_RECONSTRUCTIONS:
                 for i, signal in enumerate(x_hat):
                     # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
-                    spec_loss = spec_dist(x_hat[i], waveforms[i])
+                    # spec_loss = spec_dist(x_hat[i], waveforms[i])
+                    spec_loss = calc_reconstruction_loss(x_hat[i], waveforms[i])
                     # Check the energy differences
                     # print("Saving ", labels[i][:-4])
                     print("Saving ", i)
                     print("Loss: ", spec_loss)
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
-                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}.wav', audio_recon[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveform_recon[i].unsqueeze(0).cpu(), SAMPLE_RATE)
                     # print(f'{classes[labels[i]]} saved')
 
 
