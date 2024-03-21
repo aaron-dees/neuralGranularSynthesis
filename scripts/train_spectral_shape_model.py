@@ -33,9 +33,9 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="warmupExperiments",
+        project="fadScoring",
         # name= f"run_{datetime.now()}",
-        name= f"run_warmup{BETA_WARMUP_START_PERC}_{datetime.now()}",
+        name= f"run_{datetime.now()}",
     
         # track hyperparameters and run metadata
         config={
@@ -51,6 +51,7 @@ if WANDB:
     )
 
 # Evaluation metric
+# TODO Do i need to resample audio before saving to 16kHz?
 frechet = FrechetAudioDistance(
     model_name="vggish",
     # Do I need to resample these?
@@ -599,8 +600,10 @@ if __name__ == "__main__":
                             # spec_loss = spec_dist(x_hat[i], waveforms[i])
                             # Check the energy differences
                             print("Saving ", i)
-                            torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', recon_signal.unsqueeze(0).cpu(), SAMPLE_RATE)
-                            # torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                            torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}_{epoch+1}.wav', recon_signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                            # Saving for FAD scoring
+                            # TODO, do i need to resample this to 16kHz? 
+                            torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon.wav', recon_signal.unsqueeze(0).cpu(), SAMPLE_RATE)
                             torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/real_audio/CC_{i}.wav", waveform[i].unsqueeze(0).cpu(), SAMPLE_RATE)
 
                         fad_score = frechet.score(f'{RECONSTRUCTION_SAVE_DIR}/real_audio', f'{RECONSTRUCTION_SAVE_DIR}/fake_audio', dtype="float32")
