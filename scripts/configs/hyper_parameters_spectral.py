@@ -15,16 +15,17 @@ print("DEVICE: ", DEVICE)
 DATALOADER_DEVICE = torch.device('cpu')
 
 # Hyper Parameters
-BATCH_SIZE = 1
+BATCH_SIZE = 6
 TEST_SIZE = 1
 EPOCHS = 5000
 LEARNING_RATE = 0.001
 LATENT_SIZE = 128
 ENV_DIST = 0
 KERNEL_SIZE = 3
+H_DIM = 512
 # BETA_PARAMS
 # Number of warmup iterations before increasing beta
-BETA_WARMUP_START_PERC = 0.25
+BETA_WARMUP_START_PERC = 0.1
 TARGET_BETA = 0.01
 # number of warmup steps over half max_steps
 BETA_STEPS = 500
@@ -34,7 +35,8 @@ BETA_STEPS = 500
 # ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/metadata/UrbanSound8K.csv"
 # AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/UrbanSound8K/audio"
 ANNOTATIONS_FILE = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/esc50_seaWaves.csv"
-AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs/small"
+AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs"
+TEST_AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/ESC-50_SeaWaves/audio/samples/5secs/small"
 # AUDIO_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/drone_dataset/audio/5secs/small"
 
 # FRAME_SIZE = 1024
@@ -62,11 +64,11 @@ TARGET_LENGTH = 5.0
 HIGH_PASS_FREQ = 50
 
 # Mode and directories
-WANDB = False
+WANDB = True
 TRAIN = True
 EXPORT_LATENTS = False
 SAVE_CHECKPOINT = False
-CHECKPOINT_REGULAIRTY = 100
+CHECKPOINT_REGULAIRTY = 10
 LOAD_CHECKPOINT = False
 VIEW_LATENT = False
 SAVE_RECONSTRUCTIONS = True
@@ -74,6 +76,6 @@ COMPARE_ENERGY = False
 SAVE_DIR = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints"
 # SAVE_DIR = f"/home/ICTDOMAIN/d22127229/code/github/neuralGranularSynthesis/models/saved_models"
 # RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/datasets/fsdd/reconstructions/one_sec"
-RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/scripts"
+RECONSTRUCTION_SAVE_DIR = "/Users/adees/Code/neural_granular_synthesis/scripts/recon_audio"
 CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/waveform/waveform_vae_CC_cpu.pt"
 # CHECKPOINT_LOAD_PATH = f"/Users/adees/Code/neural_granular_synthesis/models/saved_models/checkpoints/waveform_vae_cpu_{EPOCHS}epochs_{64}batch_{BETA}beta_{ENV_DIST}envdist_latest.pt"
