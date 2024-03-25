@@ -31,7 +31,7 @@ if WANDB:
     wandb.init(
         # set the wandb project where this run will be logged
         project="temporalModel",
-        name= f"run_{datetime.now()}",
+        name= f"run_lrDecay_{datetime.now()}",
     
         # track hyperparameters and run metadata
         config={
@@ -106,6 +106,7 @@ if __name__ == "__main__":
         ########### 
 
         optimizer = torch.optim.Adam(l_model.parameters(),lr=LEARNING_RATE)
+        lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=4000)
 
         start_epoch = 0
         accum_iter = 0
@@ -194,6 +195,10 @@ if __name__ == "__main__":
                 running_rec_loss += rec_loss
 
                 accum_iter+=1
+
+            # Decay the learning rate
+            lr_scheduler.step()
+            new_lr = optimizer.param_groups[0]["lr"]
                 
             # get avg training statistics - note that I'm dividing by size of data set but the last batch is thrown out
             # train_loss = running_train_loss # does len(fsdd_dataloader) return the number of batches ?
