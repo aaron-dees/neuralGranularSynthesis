@@ -83,6 +83,7 @@ def compute_latents(w_model, dataloader, l_grain, n_grains, hop_size, batch_size
         with torch.no_grad():
             waveform, labels = batch
             bs = waveform.shape[0]
+            waveform = waveform.to(device)
 
             # ---------- Turn Waveform into grains ----------
             ola_window = signal.hann(l_grain,sym=False)
