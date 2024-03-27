@@ -63,7 +63,7 @@ if __name__ == "__main__":
     # w_model = SpectralVAE_v3(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE, channels = 32, kernel_size = 3, stride = 2)
     
     if LOAD_WAVEFORM_CHECKPOINT:
-        checkpoint = torch.load(WAVEFORM_CHECKPOINT_LOAD_PATH)
+        checkpoint = torch.load(WAVEFORM_CHECKPOINT_LOAD_PATH, map_location=DEVICE)
         w_model.load_state_dict(checkpoint['model_state_dict'])
 
     w_model.to(DEVICE)
@@ -285,7 +285,8 @@ if __name__ == "__main__":
             l_model.load_state_dict(checkpoint['model_state_dict'])
 
         for batch in test_latentloader:
-            export_embedding_to_audio_reconstructions(l_model, w_model, batch, EXPORT_AUDIO_DIR, SAMPLE_RATE, DEVICE,trainset=True)
+            export_embedding_to_audio_reconstructions(l_model, w_model, batch, EXPORT_AUDIO_DIR, SAMPLE_RATE, DEVICE, hop_size, tar_l, HOP_SIZE_RATIO, trainset=True)
+            break
         
         print("-------- Exporting Audio Reconstructions DONE --------")
 

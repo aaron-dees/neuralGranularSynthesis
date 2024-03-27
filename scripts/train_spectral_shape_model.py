@@ -620,7 +620,7 @@ if __name__ == "__main__":
         print("-------- Exporting Latents --------")
 
         if LOAD_CHECKPOINT:
-            checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
+            checkpoint = torch.load(CHECKPOINT_LOAD_PATH, map_location=DEVICE)
             model.load_state_dict(checkpoint['model_state_dict'])
 
         model.to(DEVICE)
@@ -644,7 +644,7 @@ if __name__ == "__main__":
 
         # with torch.no_grad():
         if LOAD_CHECKPOINT:
-            checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
+            checkpoint = torch.load(CHECKPOINT_LOAD_PATH, map_location=DEVICE)
             model.load_state_dict(checkpoint['model_state_dict'])
 
         # Put model in eval mode
@@ -659,7 +659,8 @@ if __name__ == "__main__":
 
             waveforms = waveforms.to(DEVICE)
 
-            # This turns our sample into overlapping grains
+
+            # ---------- Turn Waveform into grains ----------
             ola_window = signal.hann(l_grain,sym=False)
             ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(n_grains,1).type(torch.float32)
             ola_windows[0,:l_grain//2] = ola_window[l_grain//2] # start of 1st grain is not windowed for preserving attacks
@@ -673,7 +674,9 @@ if __name__ == "__main__":
             # repeat the overlap add windows acrosss the batch and apply to the grains
             mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
             grain_fft = torch.fft.rfft(mb_grains)
+            # ---------- Turn Waveform into grains END ----------
 
+            # ---------- Get CCs, or MFCCs and invert ----------
             # CCs
             grain_db = 20*safe_log10(torch.abs(grain_fft))
             cepstral_coeff = dct.dct(grain_db)
@@ -682,36 +685,34 @@ if __name__ == "__main__":
             inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
             # MFCCs  - use librosa function as they are more reliable
-            grain_fft = grain_fft.permute(0,2,1)
-            grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft)**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-            mfccs = dct.dct(grain_mel)
-            inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-            inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH))
-            inv_mfccs = inv_mfccs.permute(0,2,1)
+            # grain_fft = grain_fft.permute(0,2,1)
+            # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+            # mfccs = dct.dct(grain_mel)
+            # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
+            # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
+            # inv_mfccs = inv_mfccs.permute(0,2,1)
+
+            # ---------- Get CCs, or MFCCs and invert END ----------
+
+            # ---------- Run Model ----------
 
             x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
-             # return the spectral shape 
-            # CC part
-            
-            # filter_coeffs = torch.zeros(x_hat.shape[0], x_hat.shape[1], int(l_grain/2)+1)
-            # filter_coeffs[:, :, :NUM_CC] = x_hat
 
-            # # NOTE Do i need to  do the scaling back from decibels, also note this introduces 
-            # # NOTE is there a torch implementation of this, bit of a bottleneck if not?
-            # # NOTE issue with gradient flowwing back
-            # # NOTE changed this from idct_2d to idct
-            # # inv_filter_coeffs = (dct.idct(filter_coeffs))
-            # inv_filter_coeffs = 10**(dct.idct(filter_coeffs) / 20)
-            # x_hat = inv_filter_coeffs
 
-            # get sample outputs
-            # Step 5 - Noise Filtering
+            # ---------- Run Model END ----------
+
+            # ---------- Noise Filtering ----------
+
             # Reshape for noise filtering - TODO Look if this is necesary
             x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
 
             # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
             filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
             audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
+
+            # ---------- Noise Filtering END ----------
+
+            # ---------- Concatonate Grains ----------
 
             # Check if number of grains wanted is entered, else use the original
             if n_grains is None:
@@ -741,17 +742,15 @@ if __name__ == "__main__":
                 ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
                 audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
+            # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+            # audio_sum = audio_sum * 0.9
+
             # NOTE Removed the post processing step for now
             # This module applies a multi-channel temporal convolution that
             # learns a parallel set of time-invariant FIR filters and improves
             # the audio quality of the assembled signal.
             # TODO Add back in ?
             # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
-
-
-            # Normalise the audio, as is done in dataloader.
-            audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-            audio_sum = audio_sum * 0.9
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
             spec_loss = spec_dist(audio_sum, waveforms)
@@ -786,17 +785,20 @@ if __name__ == "__main__":
         #             print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
 
             if SAVE_RECONSTRUCTIONS:
-                for i, signal in enumerate(x_hat):
+                for i, signal in enumerate(audio_sum):
                     # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
-                    spec_loss = spec_dist(x_hat[i], waveforms[i])
+                    spec_loss = spec_dist(audio_sum[i], waveforms[i])
                     # Check the energy differences
                     # print("Saving ", labels[i][:-4])
                     print("Saving ", i)
                     print("Loss: ", spec_loss)
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
-                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/real_audio/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
                     # print(f'{classes[labels[i]]} saved')
+
+                    fad_score = frechet.score(f'{RECONSTRUCTION_SAVE_DIR}/real_audio', f'{RECONSTRUCTION_SAVE_DIR}/fake_audio', dtype="float32")
+                    print("FAD Score: ", fad_score)
 
 
