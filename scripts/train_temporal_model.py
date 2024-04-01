@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 
 from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1, SpectralVAE_v2
-from models.temporal_models.temporal_model import LatentVAE
+from models.temporal_models.temporal_model import LatentVAE_v1
 from models.dataloaders.waveform_dataloaders import  make_audio_dataloaders
 from models.dataloaders.latent_dataloaders import make_latent_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     # train_latentloader,val_latentloader = make_latent_dataloaders(train_latents,train_labels,val_latents,val_labels, batch_size=10 ,num_workers=0)
     test_latentloader, _ = make_latent_dataloaders(test_latents,test_labels,test_latents,test_labels, batch_size=TEST_SIZE ,num_workers=0)
 
-    l_model = LatentVAE(
+    l_model = LatentVAE_v1(
         e_dim=TEMPORAL_LATENT_SIZE,
         z_dim=LATENT_SIZE,
         h_dim=HIDDEN_SIZE,
@@ -195,7 +195,10 @@ if __name__ == "__main__":
                 running_rec_loss += rec_loss
 
                 accum_iter+=1
+                # print("T: ", loss)
 
+            # print(data[0].sum())
+            # print("Train: ", latent[0,0,:10])
             # Decay the learning rate
             lr_scheduler.step()
             new_lr = optimizer.param_groups[0]["lr"]
@@ -209,6 +212,8 @@ if __name__ == "__main__":
             rec_loss = running_rec_loss/len(train_latentloader)
             # print("Training Loss: ", train_loss)
             # print("KL Loss: ", kl_loss)
+
+            # print("T: ", len(train_latentloader))
 
             # Validate - turn gradient tracking off for validation. 
             l_model.eval()
@@ -244,6 +249,9 @@ if __name__ == "__main__":
                 val_loss = running_val_loss/len(val_latentloader)
                 kl_val_loss = running_kl_val_loss/len(val_latentloader)
                 rec_val_loss = running_rec_val_loss/len(val_latentloader)
+                # print(running_val_loss)
+                # print(len(val_latentloader))
+                # print(latent[0,0,:10])
 
             # wandb logging
             if WANDB:

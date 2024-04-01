@@ -24,6 +24,167 @@ class linear_block(nn.Module):
         return self.block(x)
 
 # ------------
+# LATENT AUTO-ENCODER v1
+# ------------
+
+class LatentEncoder_v1(nn.Module):
+
+    def __init__(self,
+                 e_dim,
+                 z_dim,
+                 h_dim,
+                 n_linears,
+                 rnn_type,
+                 n_RNN,
+                 n_grains,
+                #  classes,
+                #  conditional,
+                #  lr
+                    ):
+        super(LatentEncoder_v1, self).__init__()
+
+        self.flatten_size = n_grains * z_dim
+
+        encoder_z = [linear_block(self.flatten_size, h_dim, norm="LN")]
+        encoder_z += [linear_block(h_dim, h_dim, norm="LN") for i in range(1, n_linears)]
+        self.encoder_z = nn.Sequential(*encoder_z)
+
+        self.mu = nn.Linear(h_dim, e_dim)
+        self.logvar = nn.Sequential(nn.Linear(h_dim, e_dim), nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipped to avoid numerical instabilities
+
+
+
+    def encode(self, z):
+
+        h = z.reshape(z.shape[0], self.flatten_size)
+
+        h = self.encoder_z(h)
+
+        mu = self.mu(h)
+        logvar = self.logvar(h)
+
+        e = sample_from_distribution(mu, logvar)
+
+        return e, mu, logvar
+
+    def forward(self, latents):
+
+        e, mu, logvar = self.encode(latents)
+
+        return e, mu, logvar
+    
+
+class LatentDecoder_v1(nn.Module):
+
+    def __init__(self,
+                 e_dim,
+                 z_dim,
+                 h_dim,
+                 n_linears,
+                 rnn_type,
+                 n_RNN,
+                 n_grains,
+                 classes,
+                 conditional,
+                #  lr
+                    ):
+        super(LatentDecoder_v1, self).__init__()
+
+        self.n_grains = n_grains
+        self.flatten_size = n_grains * z_dim
+        self.z_dim = z_dim
+
+        decoder_z = [linear_block(e_dim, h_dim, norm="LN")] 
+        decoder_z += [linear_block(h_dim, h_dim, norm="LN") for i in range(1,n_linears)]
+        decoder_z += [nn.Linear(h_dim, self.flatten_size)]
+        self.decoder_z = nn.Sequential(*decoder_z)
+
+
+    def decode(self, e, conds=None):
+
+        # In theory here I could create the final output of the dense layer be a larger seq? 
+        z = self.decoder_z(e)
+
+        z = z.reshape(z.shape[0], self.n_grains, self.z_dim)
+
+        return z
+
+    def forward(self, latents, conds=None):
+
+        z = self.decode(latents, conds)
+
+        return z
+    
+
+class LatentVAE_v1(nn.Module):
+
+    def __init__(self,
+                e_dim,
+                z_dim,
+                h_dim,
+                n_linears,
+                rnn_type,
+                n_RNN,
+                n_grains,
+                classes,
+                conditional,
+                    ):
+        super(LatentVAE_v1, self).__init__()
+
+        self.Encoder = LatentEncoder_v1(
+            e_dim=e_dim,
+            z_dim=z_dim,
+            h_dim=h_dim,
+            n_linears=n_linears,
+            rnn_type=rnn_type,
+            n_RNN=n_RNN,
+            n_grains=n_grains,
+        )
+        self.Decoder = LatentDecoder_v1(
+            e_dim=e_dim,
+            z_dim=z_dim,
+            h_dim=h_dim,
+            n_linears=n_linears,
+            n_grains=n_grains,
+            rnn_type=rnn_type,
+            n_RNN=n_RNN,
+            classes=classes,
+            conditional=conditional
+        )
+
+        # Number of convolutional layers
+    def encode(self, z):
+
+         # z ---> e
+        e, mu, log_variance = self.Encoder(z);
+    
+        return {"e":e,"mu":mu,"logvar":log_variance} 
+
+    def decode(self, e, mu, sampling=True):
+
+        if sampling:
+            z_hat = self.Decoder(e)
+        else:
+            z_hat = self.Decoder(mu) 
+        
+        return z_hat
+
+    def forward(self, z, conds=None, sampling=True):
+
+        # z ---> e
+        
+        e, mu, log_variance = self.Encoder(z);
+
+        # z ---> x_hat
+        # Note in paper they also have option passing mu into the decoder and not z
+        if sampling:
+            z_hat = self.Decoder(e, conds)
+        else:
+            z_hat = self.Decoder(mu, conds)
+
+        return z_hat, e, mu, log_variance
+    
+# ------------
 # LATENT AUTO-ENCODER (temporal embedding)
 # ------------
 
