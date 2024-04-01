@@ -22,8 +22,16 @@ import wandb
 import numpy as np
 from datetime import datetime
 
-print(LATENT_SIZE)
-print(LOAD_WAVEFORM_CHECKPOINT)
+from frechet_audio_distance import FrechetAudioDistance
+
+# to use `vggish`
+frechet = FrechetAudioDistance(
+    model_name="vggish",
+    sample_rate=16000,
+    use_pca=False, 
+    use_activation=False,
+    verbose=False
+)
 
 # start a new wandb run to track this script
 if WANDB:
@@ -294,90 +302,24 @@ if __name__ == "__main__":
 
         for batch in test_latentloader:
             export_embedding_to_audio_reconstructions(l_model, w_model, batch, EXPORT_AUDIO_DIR, SAMPLE_RATE, DEVICE, hop_size, tar_l, HOP_SIZE_RATIO, trainset=True)
-            break
+            fad_score = frechet.score(f'{EXPORT_AUDIO_DIR}/real_audio', f'{EXPORT_AUDIO_DIR}/fake_audio', dtype="float32")
+            print("FAD Score: ", fad_score)
+            # break
         
         print("-------- Exporting Audio Reconstructions DONE --------")
 
 
-        #print("-------- Exporting Random Latent Audio Reconstructions --------")
+        print("-------- Exporting Random Latent Audio Reconstructions --------")
 
-        #export_random_samples(l_model,w_model, EXPORT_RANDOM_LATENT_AUDIO_DIR, LATENT_SIZE, TEMPORAL_LATENT_SIZE,SAMPLE_RATE, ["SeaWaves"], DEVICE)
+        export_random_samples(l_model,w_model, EXPORT_RANDOM_LATENT_AUDIO_DIR, LATENT_SIZE, TEMPORAL_LATENT_SIZE,SAMPLE_RATE, ["SeaWaves"], DEVICE, tar_l, hop_size, HOP_SIZE_RATIO, n_samples=10)
 
-        #print("-------- Exporting Random Latent Audio Reconstructions Done --------")
+        print("-------- Exporting Random Latent Audio Reconstructions Done --------")
 
     #     model.to(DEVICE)
     #     model.eval()
 
-    #     train_latents,train_labels,test_latents,test_labels = export_latents(model,test_dataloader,test_dataloader)
+        # train_latents,train_labels,test_latents,test_labels = export_latents(model,test_dataloader,test_dataloader)
     #     # train_latents,train_labels,test_latents,test_labels = export_latents(model,train_dataloader,val_dataloader)
         
     #     print("-------- Done Exporting Latents --------")
-
-
-    # else:
-
-    #     print("-------- Inference Mode --------")
-
-    #     ###########
-    #     # Inference
-    #     ########### 
-
-    #     # with torch.no_grad():
-    #     if LOAD_CHECKPOINT:
-    #         checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
-    #         model.load_state_dict(checkpoint['model_state_dict'])
-
-    #     # Put model in eval mode
-    #     model.to(DEVICE)
-    #     model.eval()
-
-    #     # Lets get batch of test images
-    #     dataiter = iter(test_dataloader)
-    #     waveforms, labels = next(dataiter)
-    #     # print(signal.shape)
-    #     # print(labels.shape)
-    #     waveforms = waveforms.to(DEVICE)
-
-            
-    #     x_hat, z, mu, logvar = model(waveforms)                     # get sample outputs
-
-    #     print("Z shape:", z.shape)
-
-        
-
-    #     spec_dist = spectral_distances(sr=SAMPLE_RATE)
-
-    #     # spec_loss = spec_dist(x_hat, waveforms)
-    #     # print("Average: ", spec_loss)
-
-    #     z = z.reshape(z.shape[0] ,1, z.shape[1])
-    #     z = z.detach()
-
-
-    #     # if VIEW_LATENT:
-    #     #     plot_latents(z,labels, classes,"./")
-    #     if COMPARE_ENERGY:
-    #         for i, signal in enumerate(x_hat):
-    #             # Check the energy differences
-    #             # print(labels[i][:-4])
-    #             print("Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data)
-    #             print("Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data)
-    #             print("Average Reconstruction Energy    : ", (x_hat[i] * x_hat[i]).sum().data/x_hat[i].shape[0])
-    #             print("Average Original Energy          : ", (waveforms[i] * waveforms[i]).sum().data/waveforms[i].shape[0])
-
-
-    #     if SAVE_RECONSTRUCTIONS:
-    #         for i, signal in enumerate(x_hat):
-    #             # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
-    #             spec_loss = spec_dist(x_hat[i], waveforms[i])
-    #             # Check the energy differences
-    #             # print("Saving ", labels[i][:-4])
-    #             print("Saving ", i)
-    #             print("Loss: ", spec_loss)
-    #             # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
-    #             # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-    #             torchaudio.save(f"./audio_tests/reconstructions/one_sec/recon_{i}_{spec_loss}.wav", signal.unsqueeze(0), SAMPLE_RATE)
-    #             torchaudio.save(f"./audio_tests/reconstructions/one_sec/{i}.wav", waveforms[i].unsqueeze(0), SAMPLE_RATE)
-    #             # print(f'{classes[labels[i]]} saved')
-
 

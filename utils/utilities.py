@@ -172,11 +172,9 @@ def export_embedding_to_audio_reconstructions(l_model,w_model,batch, export_dir,
         z,conds = z.to(device),conds.to(device)
         # forward through latent embedding
         z_hat, e, mu, log_variance = l_model(z,conds, sampling=False)
-
-        rec_loss = mse_loss(z_hat[0,0,:10],z[0,0,:10]) # we train with a deterministic output
-        print("Rec Loss: ", rec_loss)
-        # print(z_hat[0,0,:10])
-        # print(z[0,0,:10])
+        
+        rec_loss = mse_loss(z_hat,z) # we train with a deterministic output
+        print("Latent Reconstruction Loss: ", rec_loss)
 
         # reshape as minibatch of individual grains of shape [bs*n_grains,z_dim]
         z,z_hat = z.reshape(-1,w_model.z_dim),z_hat.reshape(-1,w_model.z_dim)
@@ -242,17 +240,19 @@ def export_embedding_to_audio_reconstructions(l_model,w_model,batch, export_dir,
             audio_hat_sum = audio_hat_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
         #audio_export = torch.cat((audio,audio_hat),-1).cpu().numpy()
-        print(audio_sum.shape)
-        print(audio_hat_sum.shape)
-        for i in range(audio_hat.shape[0]):
+        for i in range(audio_hat_sum.shape[0]):
             if trainset:
                 sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
                 sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"real_audio/embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"fake_audio/embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
             else:
                 sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
                 sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"real_audio/embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"fake_audio/embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
 
-def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes, device, n_samples=10,temperature=1.):
+def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes, device, tar_l, hop_size, hop_size_ratio, n_samples=10,temperature=1.):
     if os.path.exists(export_dir) is False:
         os.makedirs(export_dir)
     with torch.no_grad():
@@ -261,8 +261,63 @@ def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes,
             rand_e = rand_e*temperature
             conds = torch.zeros(n_samples).to(device).long()+i
             z_hat = l_model.decode(rand_e,conds).reshape(-1, z_dim)
-            audio_hat = w_model.decode(z_hat).view(-1).cpu().numpy()
-            sf.write(os.path.join(export_dir,"random_samples_"+cl+".wav"),audio_hat, sr)
+            # x_hat = w_model.decode(z_hat).view(-1).cpu().numpy()
+            # x_hat = w_model.decode(z_hat).view(-1)
+            x_hat = w_model.decode(z_hat)
+
+            x_hat = x_hat['audio']
+
+            # Need to be put back together
+            # ---------- Run Model END ----------
+
+            # ---------- Noise Filtering ----------
+
+            # Reshape for noise filtering - TODO Look if this is necesary
+            x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
+
+            # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
+            filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(w_model.l_grain)),requires_grad=False).to(device)
+            audio_hat = dsp.noise_filtering(x_hat, filter_window, w_model.n_grains, w_model.l_grain, hop_size_ratio)
+            # ---------- Noise Filtering END ----------
+
+            # ---------- Concatonate Grains ----------
+
+            # Check if number of grains wanted is entered, else use the original
+            if w_model.n_grains is None:
+                audio_hat = audio_hat.reshape(-1, w_model.n_grains, w_model.l_grain)
+            else:
+                audio_hat = audio_hat.reshape(-1,w_model.n_grains,w_model.l_grain)
+            bs = audio_hat.shape[0]
+
+            ola_window = signal.hann(w_model.l_grain,sym=False)
+            ola_windows = torch.from_numpy(ola_window).unsqueeze(0).repeat(w_model.n_grains,1).type(torch.float32)
+            ola_windows[0,:w_model.l_grain//2] = ola_window[w_model.l_grain//2] # start of 1st grain is not windowed for preserving attacks
+            ola_windows[-1,w_model.l_grain//2:] = ola_window[w_model.l_grain//2] # end of last grain is not wondowed to preserving decays
+            ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(device)
+
+            # Check if an overlapp add window has been passed, if not use that used in encoding.
+            audio_hat = audio_hat*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+            # Folder
+            # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
+            # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
+            ola_folder = nn.Fold((tar_l,1),(w_model.l_grain,1),stride=(hop_size,1))
+            # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+            # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+            # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+            # since kernel size is l_grain, this is needed in the second dimension.
+            audio_hat_sum = ola_folder(audio_hat.permute(0,2,1)).squeeze()
+
+            # Normalise the energy values across the audio samples
+            if NORMALIZE_OLA:
+                unfolder = nn.Unfold((w_model.l_grain,1),stride=(hop_size,1))
+                input_ones = torch.ones(1,1,tar_l,1)
+                ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+                ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(device)
+                audio_hat_sum = audio_hat_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+            for i in range(audio_hat_sum.shape[0]):
+                sf.write(os.path.join(export_dir,f"random_samples_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
 
 def generate_noise_grains(batch_size, n_grains, l_grain, dtype, device, hop_ratio=0.25):
 
