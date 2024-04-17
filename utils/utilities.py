@@ -244,13 +244,13 @@ def export_embedding_to_audio_reconstructions(l_model,w_model,batch, export_dir,
             if trainset:
                 sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
                 sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"real_audio/embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"fake_audio/embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"waveformmodel_audio/embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"latentmodel_audio/embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
             else:
                 sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
                 sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"real_audio/embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"fake_audio/embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"waveformmodel_audio/embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"latentmodel_audio/embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
 
 def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes, device, tar_l, hop_size, hop_size_ratio, n_samples=10,temperature=1.):
     if os.path.exists(export_dir) is False:

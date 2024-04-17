@@ -127,7 +127,7 @@ if __name__ == "__main__":
         mse_loss = nn.MSELoss()
 
         if LOAD_LATENT_CHECKPOINT:
-            checkpoint = torch.load(LATENT_CHECKPOINT_LOAD_PATH)
+            checkpoint = torch.load(LATENT_CHECKPOINT_LOAD_PATH, map_location=DEVICE)
             l_model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch']
@@ -297,13 +297,25 @@ if __name__ == "__main__":
         print("-------- Exporting Audio Reconstructions --------")
 
         if LOAD_LATENT_CHECKPOINT:
-            checkpoint = torch.load(LATENT_CHECKPOINT_LOAD_PATH)
+            checkpoint = torch.load(LATENT_CHECKPOINT_LOAD_PATH, map_location=DEVICE)
             l_model.load_state_dict(checkpoint['model_state_dict'])
+
+
+
+        dataiter = iter(test_dataloader)
+        waveforms, labels = next(dataiter)
+        waveforms = waveforms.to(DEVICE)
+        for i, signal in enumerate(waveforms):
+            torchaudio.save(f"{EXPORT_AUDIO_DIR}/real_audio/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
 
         for batch in test_latentloader:
             export_embedding_to_audio_reconstructions(l_model, w_model, batch, EXPORT_AUDIO_DIR, SAMPLE_RATE, DEVICE, hop_size, tar_l, HOP_SIZE_RATIO, trainset=True)
-            fad_score = frechet.score(f'{EXPORT_AUDIO_DIR}/real_audio', f'{EXPORT_AUDIO_DIR}/fake_audio', dtype="float32")
-            print("FAD Score: ", fad_score)
+            fad_score_real = frechet.score(f'{EXPORT_AUDIO_DIR}/real_audio', f'{EXPORT_AUDIO_DIR}/latentmodel_audio', dtype="float32")
+            fad_score_wavemodel = frechet.score(f'{EXPORT_AUDIO_DIR}/waveformmodel_audio', f'{EXPORT_AUDIO_DIR}/latentmodel_audio', dtype="float32")
+            fad_score_waveform_vs_real = frechet.score(f'{EXPORT_AUDIO_DIR}/waveformmodel_audio', f'{EXPORT_AUDIO_DIR}/real_audio', dtype="float32")
+            print("FAD Score waveform model vs real: ", fad_score_waveform_vs_real)
+            print("FAD Score latent model vs real: ", fad_score_real)
+            print("FAD Score latent model vs wavemodel: ", fad_score_wavemodel)
             # break
         
         print("-------- Exporting Audio Reconstructions DONE --------")
