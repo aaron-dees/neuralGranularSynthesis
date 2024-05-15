@@ -57,7 +57,6 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain, hop_ratio):
     # # Create noise, why doe we multiply by 2 and subtract 1 here
 
     filter_ir = amp_to_impulse_response(filter_coeffs, l_grain)
-
     bs = filter_ir.reshape(-1,n_grains,l_grain).shape[0]
     
     noise = utils.generate_noise_grains(bs, n_grains, l_grain, dtype, filter_coeffs.device, hop_ratio=hop_ratio)
@@ -68,7 +67,9 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain, hop_ratio):
     # noise = torch.rand(N, num_samples, dtype=dtype, device=filter_coeffs.device)*2-1
 
     # audio = fft_convolve(noise, filter_ir)
-    audio = fft_convolve_no_pad(noise, filter_ir)
+    # audio = fft_convolve_no_pad(noise, filter_ir)
+    # Note that we are not using Impulse Response here
+    audio = fft_convolve_no_pad_2(noise, filter_coeffs)
 
     # Transform noise and impulse response filters into fourier domain
     # S_noise = torch.fft.rfft(noise,dim=1)
@@ -91,6 +92,8 @@ def fft_convolve(signal, kernel):
 
     # NOTE Should I really be using ifft here since we want to keep the phase of the noise. 
     output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
+    # plt.plot((torch.fft.rfft(signal) * torch.fft.rfft(kernel))[7])
+    # plt.savefig("test_2.png")
     output = output[..., output.shape[-1] // 2:]
 
 
@@ -101,6 +104,7 @@ def fft_convolve_2(signal, kernel):
     signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
     kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
 
+
     output = torch.fft.rfft(signal) * torch.fft.rfft(kernel)
     output = output[..., output.shape[-1] // 2:]
 
@@ -109,7 +113,19 @@ def fft_convolve_2(signal, kernel):
 
 def fft_convolve_no_pad(signal, kernel):
 
+
     output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
+
+    # plt.plot((torch.fft.rfft(signal) * torch.fft.rfft(kernel))[7])
+    # plt.savefig("test_1.png")
+
+
+    return output
+
+def fft_convolve_no_pad_2(signal, kernel):
+
+
+    output = torch.fft.irfft(torch.fft.rfft(signal) * kernel)
 
 
     return output

@@ -83,6 +83,7 @@ class linear_block(nn.Module):
     
 #############
 # Models
+# Using 3 version based on work in latent timbre synthesis.
 #############
     
 #############
