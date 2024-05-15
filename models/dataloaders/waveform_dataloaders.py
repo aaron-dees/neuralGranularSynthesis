@@ -234,7 +234,7 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
                 data = librosa.to_mono(data)
             if samplerate!=sr:
                 print("--- !!! Read samplerate differs from target sample rate, resampling.")
-                data = librosa.resample(data, samplerate, sr)
+                data = librosa.resample(data, orig_sr=samplerate, target_sr=sr)
 
             # Mean normalise the grains
             data -= np.mean(data)
