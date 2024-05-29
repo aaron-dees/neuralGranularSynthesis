@@ -126,6 +126,14 @@ def fft_convolve_no_pad_2(signal, kernel):
 
 
     output = torch.fft.irfft(torch.fft.rfft(signal) * kernel)
+    # plt.plot(torch.abs((torch.fft.rfft(signal) * kernel)[9]))
+    # plt.plot(np.abs(grain_fft[9]))
+    # plt.plot(inv_mfccs[7])
+    # plt.plot(inv_cepstral_coeff[9])
+    # plt.figure()
+    # # librosa.display.specshow(dsp.safe_log10(torch.abs(sig_noise_fft_cc)**2).cpu().numpy())
+    # librosa.display.specshow(dsp.safe_log10(torch.abs(noise)**2).cpu().numpy())
+    # plt.savefig("test.png")
 
 
     return output
