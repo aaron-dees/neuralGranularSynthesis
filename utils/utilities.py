@@ -258,6 +258,8 @@ def latent_to_audio(latent ,latent_hat,w_model, export_dir, sr, device, hop_size
 
     with torch.no_grad():
 
+        latent, latent_hat = latent.to(device), latent_hat.to(device) 
+
         x = w_model.decode(latent)
         x_hat = w_model.decode(latent_hat)
         x = x['audio']
@@ -322,15 +324,15 @@ def latent_to_audio(latent ,latent_hat,w_model, export_dir, sr, device, hop_size
         #audio_export = torch.cat((audio,audio_hat),-1).cpu().numpy()
         for i in range(audio_hat_sum.shape[0]):
             if trainset:
-                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"waveformmodel_audio/embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"latentmodel_audio/embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:].cpu().numpy(), sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:].cpu().numpy(), sr)
+                sf.write(os.path.join(export_dir,"waveformmodel_audio/embedding_to_audio_train_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:].cpu().numpy(), sr)
+                sf.write(os.path.join(export_dir,"latentmodel_audio/embedding_to_audio_train_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:].cpu().numpy(), sr)
             else:
-                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"waveformmodel_audio/embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:], sr)
-                sf.write(os.path.join(export_dir,"latentmodel_audio/embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:], sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:].cpu().numpy(), sr)
+                sf.write(os.path.join(export_dir,"embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:].cpu().numpy(), sr)
+                sf.write(os.path.join(export_dir,"waveformmodel_audio/embedding_to_audio_test_reconstruction_orig_"+str(i)+".wav"),audio_sum[i,:].cpu().numpy(), sr)
+                sf.write(os.path.join(export_dir,"latentmodel_audio/embedding_to_audio_test_reconstruction_hat_"+str(i)+".wav"),audio_hat_sum[i,:].cpu().numpy(), sr)
 
 def export_random_samples(l_model,w_model,export_dir, z_dim, e_dim, sr, classes, device, tar_l, hop_size, hop_size_ratio, n_samples=10,temperature=1.):
     if os.path.exists(export_dir) is False:
