@@ -53,19 +53,19 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="temporalModel",
-        name= f"run_lrDecay_{datetime.now()}",
+        project="recurrentModelOptimisations",
+        name= f"optim_incHidden_{datetime.now()}",
     
         # track hyperparameters and run metadata
         config={
         "learning_rate": LEARNING_RATE,
-        "architecture": "Latent_VAE",
+        "architecture": "LSTM+Linear",
         "dataset": "UrbanSound8K",
         "epochs": EPOCHS,
-        "latent size": LATENT_SIZE,
-        "env_dist": ENV_DIST,
-        "tar_beta": TARGET_BETA,
-        "grain_length": GRAIN_LENGTH
+        "grain_length": GRAIN_LENGTH,
+        "latent_size": LATENT_SIZE,
+        "hidden_size": H_DIM,
+        "rnn_layers": NO_RNN_LAYERS
         }
     )
 
@@ -123,6 +123,7 @@ if __name__ == "__main__":
     y_test = y_test.reshape(-1, y_test.shape[2], y_test.shape[3])
 
     l_model = RNN_v1(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
+
     optimizer = torch.optim.Adam(l_model.parameters(), lr=LEARNING_RATE)
     # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=4000)
     loss_fn = nn.MSELoss()
