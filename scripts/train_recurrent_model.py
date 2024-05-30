@@ -53,8 +53,8 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="recurrentModelOptimisations",
-        name= f"optim_incHidden_{datetime.now()}",
+        project="recurrentModelsLookbackExperiments",
+        name= f"{WANDB_NAME}_{datetime.now()}",
     
         # track hyperparameters and run metadata
         config={
@@ -65,7 +65,8 @@ if WANDB:
         "grain_length": GRAIN_LENGTH,
         "latent_size": LATENT_SIZE,
         "hidden_size": H_DIM,
-        "rnn_layers": NO_RNN_LAYERS
+        "rnn_layers": NO_RNN_LAYERS,
+        "lookback": LOOKBACK
         }
     )
 
@@ -108,10 +109,10 @@ if __name__ == "__main__":
     # train_latents = train_latents[:128, :, :]
 
 
-    lookback = 150
-    X_train, y_train = create_dataset(train_latents, lookback=lookback)
-    val_X_train, val_y_train = create_dataset(val_latents, lookback=lookback)
-    X_test, y_test = create_dataset(test_latents, lookback=lookback)
+    # lookback = 150
+    X_train, y_train = create_dataset(train_latents, lookback=LOOKBACK)
+    val_X_train, val_y_train = create_dataset(val_latents, lookback=LOOKBACK)
+    X_test, y_test = create_dataset(test_latents, lookback=LOOKBACK)
     print(X_train.shape)
     print(train_latents.shape)
 
@@ -166,11 +167,33 @@ if __name__ == "__main__":
                 train_rmse = np.sqrt(loss_fn(y_pred, y_train))
                 y_pred = l_model(val_X_train)
                 val_rmse = np.sqrt(loss_fn(y_pred, val_y_train))
+
+            # Run the test case - NOTE, this should be only over newly generated samples
+            with torch.no_grad():
+                y_pred = l_model(X_test)
+                test_rmse = np.sqrt(loss_fn(y_pred, y_test))
+                # print(y_pred[0, 0:10, 0])
+                # print(y_test[0, 0:10, 0])
+                print("Test RMSE: ", test_rmse)
+
+            # Take the first sequence that is fed to the model
+            recon_latent = X_test[0,:,:]
+            # Add the next 10 samples on
+            tmp = X_test[0,:,:].unsqueeze(0)
+            print("Out hsape: ", tmp.shape)
+            print(y_pred.shape)
+            for i in range(0, y_pred.shape[0]):
+                tmp = l_model(tmp)
+                recon_latent = torch.cat((recon_latent, tmp[0,-1,:].unsqueeze(0)), dim=0)
+                # recon_latent = torch.cat((recon_latent, y_pred[i,-1,:].unsqueeze(0)), dim=0)
+            
+            sampled_seq_loss = loss_fn(recon_latent ,test_latents[0, :309, :])
+
             print("Epoch %d: train RMSE %.4f, validation RMSE %.4f" % (epoch, train_rmse, val_rmse))
 
             # wandb logging
             if WANDB:
-                wandb.log({"train_RMSE": train_rmse, "val_RMSE": val_rmse})
+                wandb.log({"train_RMSE": train_rmse, "val_RMSE": val_rmse, "test_RMSE": sampled_seq_loss})
 
             if SAVE_CHECKPOINT:
                 if (epoch) % CHECKPOINT_REGULAIRTY == 0:
