@@ -172,8 +172,6 @@ if __name__ == "__main__":
             with torch.no_grad():
                 y_pred = l_model(X_test)
                 test_rmse = np.sqrt(loss_fn(y_pred, y_test))
-                # print(y_pred[0, 0:10, 0])
-                # print(y_test[0, 0:10, 0])
                 print("Test RMSE: ", test_rmse)
 
             # Take the first sequence that is fed to the model
@@ -187,7 +185,7 @@ if __name__ == "__main__":
                 recon_latent = torch.cat((recon_latent, tmp[0,-1,:].unsqueeze(0)), dim=0)
                 # recon_latent = torch.cat((recon_latent, y_pred[i,-1,:].unsqueeze(0)), dim=0)
             
-            sampled_seq_loss = loss_fn(recon_latent ,test_latents[0, :309, :])
+            sampled_seq_loss = loss_fn(recon_latent[LOOKBACK:, :] ,test_latents[0, LOOKBACK:, :])
 
             print("Epoch %d: train RMSE %.4f, validation RMSE %.4f" % (epoch, train_rmse, val_rmse))
 
@@ -244,7 +242,7 @@ if __name__ == "__main__":
             # recon_latent = torch.cat((recon_latent, y_pred[i,-1,:].unsqueeze(0)), dim=0)
 
 
-        print("Total Loss: ", loss_fn(recon_latent ,test_latents[0, :309, :]))
+        print("Total Loss: ", loss_fn(recon_latent[LOOKBACK:, :], test_latents[0, LOOKBACK:, :]))
         print()
         z = test_latents.reshape(-1,w_model.z_dim)
         z_hat = recon_latent.reshape(-1,w_model.z_dim)
