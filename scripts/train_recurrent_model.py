@@ -53,7 +53,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="recurrentModelsLookbackExperiments",
+        project="recurrentModelRuns",
         name= f"{WANDB_NAME}_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -64,7 +64,7 @@ if WANDB:
         "epochs": EPOCHS,
         "grain_length": GRAIN_LENGTH,
         "latent_size": LATENT_SIZE,
-        "hidden_size": H_DIM,
+        "hidden_size": HIDDEN_SIZE,
         "rnn_layers": NO_RNN_LAYERS,
         "lookback": LOOKBACK
         }
@@ -128,7 +128,8 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(l_model.parameters(), lr=LEARNING_RATE)
     # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=4000)
     loss_fn = nn.MSELoss()
-    loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), shuffle=True, batch_size=32)
+    # Note the batch size here 
+    loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), shuffle=True, batch_size=BATCH_SIZE)
     
     if TRAIN:
 
@@ -149,9 +150,11 @@ if __name__ == "__main__":
 
         for epoch in range(EPOCHS):
             l_model.train()
+            running_rmse = 0.0;
             for X_batch, y_batch in loader:
                 y_pred = l_model(X_batch)
                 loss = loss_fn(y_pred, y_batch)
+                running_rmse += np.sqrt(loss.detach().numpy())
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -163,8 +166,8 @@ if __name__ == "__main__":
                 continue
             l_model.eval()
             with torch.no_grad():
-                y_pred = l_model(X_train)
-                train_rmse = np.sqrt(loss_fn(y_pred, y_train))
+                # y_pred = l_model(X_train)
+                # train_rmse = np.sqrt(loss_fn(y_pred, y_train))
                 y_pred = l_model(val_X_train)
                 val_rmse = np.sqrt(loss_fn(y_pred, val_y_train))
 
@@ -172,20 +175,19 @@ if __name__ == "__main__":
             with torch.no_grad():
                 y_pred = l_model(X_test)
                 test_rmse = np.sqrt(loss_fn(y_pred, y_test))
-                print("Test RMSE: ", test_rmse)
 
             # Take the first sequence that is fed to the model
             recon_latent = X_test[0,:,:]
             # Add the next 10 samples on
             tmp = X_test[0,:,:].unsqueeze(0)
-            print("Out hsape: ", tmp.shape)
-            print(y_pred.shape)
             for i in range(0, y_pred.shape[0]):
                 tmp = l_model(tmp)
                 recon_latent = torch.cat((recon_latent, tmp[0,-1,:].unsqueeze(0)), dim=0)
                 # recon_latent = torch.cat((recon_latent, y_pred[i,-1,:].unsqueeze(0)), dim=0)
             
             sampled_seq_loss = loss_fn(recon_latent[LOOKBACK:, :] ,test_latents[0, LOOKBACK:, :])
+
+            train_rmse = running_rmse/len(loader)
 
             print("Epoch %d: train RMSE %.4f, validation RMSE %.4f" % (epoch, train_rmse, val_rmse))
 
@@ -209,6 +211,15 @@ if __name__ == "__main__":
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': train_rmse,
                         }, f"{SAVE_MODEL_DIR}/latent_vae_latest.pt")
+
+        # Save after final epoch
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': l_model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': train_rmse,
+            }, f"{SAVE_MODEL_DIR}/latent_vae_latest.pt")
+            
 
     if EXPORT_AUDIO_RECON:
 
@@ -241,9 +252,11 @@ if __name__ == "__main__":
             recon_latent = torch.cat((recon_latent, tmp[0,-1,:].unsqueeze(0)), dim=0)
             # recon_latent = torch.cat((recon_latent, y_pred[i,-1,:].unsqueeze(0)), dim=0)
 
+        # Put sqrt on this?
+        pred_sample_loss = loss_fn(recon_latent[LOOKBACK:, :], test_latents[0, LOOKBACK:, :])
 
-        print("Total Loss: ", loss_fn(recon_latent[LOOKBACK:, :], test_latents[0, LOOKBACK:, :]))
-        print()
+
+        print("Total Loss: ", pred_sample_loss)
         z = test_latents.reshape(-1,w_model.z_dim)
         z_hat = recon_latent.reshape(-1,w_model.z_dim)
 
