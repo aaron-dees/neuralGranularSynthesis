@@ -186,7 +186,7 @@ class ESC50WaveformDataset(torch.utils.data.Dataset):
         # return self.annotations.iloc[index, 0]
         return self.filenames[index]
     
-def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2):
+def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2, center_pad=False):
 
     print("-------- Creating Dataloaders --------")
     
@@ -205,9 +205,15 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     print("--- Number of non-overlapping grains:\t",tar_l//l_grain)
     n_grains = 0
     if (hop_ratio*100 == 25) :
-        n_grains = 4*(tar_l//l_grain)-3
+        if(center_pad):
+            n_grains = 4*((tar_l+l_grain)//l_grain)-3
+        else:
+            n_grains = 4*(tar_l//l_grain)-3
     elif (hop_ratio*100 == 50) :
-        n_grains = 2*(tar_l//l_grain)-1
+        if(center_pad):
+            n_grains = 2*(tar_l+l_grain//l_grain)-1
+        else:
+            n_grains = 2*(tar_l//l_grain)-1
     else :
         print("--- !!! HOP RATIO ENTERED NOT VALID.")
  
@@ -227,6 +233,7 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
         for file in files:
             reject = 0
             data, samplerate = sf.read(file)
+            print("DATA: ", data.shape)
             if len(data.shape)>1:
                 # convert to mono
                 print("--- !!! Convering audio to mono")
@@ -251,7 +258,11 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
                 else:
                     # trim loaded audio to target length
                     data = data[:tar_l]
-                
+
+                # Pad
+                if(center_pad):
+                    data = np.pad(data, l_grain//2, 'constant')
+
                 # TODO Lookup what a high pass bi-quad filter is
                 data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
                 
@@ -260,13 +271,14 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
                     print()
                     data /= np.max(np.abs(data))
                     data *= 0.9
-                
+
                 audios.append(data)
                 labels.append(i)
             else:
                 n_rejected += 1
         
         print("--- Number of audio samples rejected:\t", n_rejected)
+
 
         audios = torch.from_numpy(np.stack(audios,axis=0)).float()
         labels = torch.from_numpy(np.stack(labels,axis=0)).long()
@@ -287,5 +299,9 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=num_workers)
 
     print("-------- Done Creating Dataloaders --------")
+
+    if(center_pad):
+        # Add padding onto target length?
+        tar_l += l_grain
     
     return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes
