@@ -373,7 +373,7 @@ def make_audio_dataloaders_noPadding(data_dir,classes,sr,silent_reject,amplitude
                     data = data[:tar_l]
 
                 # TODO Lookup what a high pass bi-quad filter is
-                data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
+                # data = torchaudio.functional.highpass_biquad(torch.from_numpy(data),sr,high_pass_freq).numpy()
                 
                 # Normalise amplitude between 0 and 1
                 if amplitude_norm or np.max(np.abs(data))>=1:
