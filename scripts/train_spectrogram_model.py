@@ -196,13 +196,13 @@ if __name__ == "__main__":
 
                 # ---------- Run Model ----------
 
-                # x_hat, z, mu, log_variance = model(mb_grains)   
+                # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
                 x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
                 # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                 # ---------- Run Model END ----------
 
-                transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size)
+                transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
                 recon_audio = transform(x_hat.permute(0,2,1))
 
                 spec_loss = spec_dist(recon_audio, waveform)
@@ -288,7 +288,7 @@ if __name__ == "__main__":
 
                     # ---------- Run Model ----------
 
-                    # x_hat, z, mu, log_variance = model(mb_grains)   
+                    # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
                     x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
                     # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
@@ -402,16 +402,16 @@ if __name__ == "__main__":
 
                         # ---------- Run Model ----------
 
-                        # x_hat, z, mu, log_variance = model(mb_grains)   
+                        # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
                         x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
                         # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                         # ---------- Run Model END ----------
 
-                        transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size)
+                        transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
                         recon_audio = transform(x_hat.permute(0,2,1))
 
-                        spec_loss = spec_dist(recon_audio, waveform[:,256:-256])
+                        spec_loss = spec_dist(recon_audio, waveform)
 
                         for i, recon_signal in enumerate(recon_audio):
                             # spec_loss = spec_dist(x_hat[i], waveforms[i])
