@@ -1,7 +1,7 @@
 import sys
-sys.path.append('../')
+sys.path.append('../../')
 
-from scripts.hyper_parameters_fsdd import *
+from scripts.configs.hyper_parameters_fsdd import *
 from utils.audio_preprocessing import Loader, Padder, LogSpectrogramExtractor, MinMaxNormaliser, Saver, PreProcessingPipeline
 
 if __name__ == "__main__":

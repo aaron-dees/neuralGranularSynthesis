@@ -41,7 +41,8 @@ def convert_spectrograms_to_audio(log_spectrograms, min_max_values, hop_length):
 
 def save_signals(signals, file_paths ,save_dir, sample_rate=22050):
     for i, signal in enumerate(signals):
-        save_path = os.path.join(save_dir, "reconstructed_" + file_paths[i][74:-8] + ".wav")
+        # save_path = os.path.join(save_dir, "reconstructed_" + file_paths[i][74:-8] + ".wav")
+        save_path = os.path.join(save_dir, "reconstructed_" + file_paths[i][-9:-8] + ".wav")
         sf.write(save_path, signal, sample_rate)
 
 class Loader:

@@ -26,6 +26,7 @@ class Encoder(nn.Module):
         self.Conv_E_5= nn.Conv2d(64, 32, stride=(2,1), kernel_size=3, padding=3//2)
         # Dense layer based on the striding used in conv layers
         self.Dense_E_1 = nn.Linear(32 * int(256/pow(2,5)) * int(64/pow(2,4)), LATENT_SIZE)
+        # self.Dense_E_1 = nn.Linear(32 * int(256/pow(2,5)) * int(32/pow(2,4)), LATENT_SIZE)
 
         self.Flat_E_1 = nn.Flatten()
 
@@ -35,7 +36,6 @@ class Encoder(nn.Module):
         self.Norm_E_4 = nn.BatchNorm2d(64)
         self.Norm_E_5 = nn.BatchNorm2d(32)
 
-
         self.Act_E_1 = nn.ReLU()
 
 
@@ -44,31 +44,40 @@ class Encoder(nn.Module):
         # x ---> z
 
         # Conv layer 1
+        # x= x.reshape(5*256, 1, 64)
+        # print(x.shape)
         Conv_E_1 = self.Conv_E_1(x)
+        # print(Conv_E_1.shape)
         Act_E_1 = self.Act_E_1(Conv_E_1)
         Norm_E_1 = self.Norm_E_1(Act_E_1)
+        # print("Conv Layer 1: ", Norm_E_1.shape)
         # Conv layer 2
         Conv_E_2 = self.Conv_E_2(Norm_E_1)
         Act_E_2 = self.Act_E_1(Conv_E_2)
         Norm_E_2 = self.Norm_E_2(Act_E_2)
+        # print("Conv Layer 2: ", Norm_E_2.shape)
         # Conv layer 3 
         Conv_E_3 = self.Conv_E_3(Norm_E_2)
         Act_E_3 = self.Act_E_1(Conv_E_3)
         Norm_E_3 = self.Norm_E_3(Act_E_3)
+        # print("Conv Layer 3: ", Norm_E_3.shape)
         # Conv layer 4
         Conv_E_4 = self.Conv_E_4(Norm_E_3)
         Act_E_4 = self.Act_E_1(Conv_E_4)
         Norm_E_4 = self.Norm_E_4(Act_E_4)
+        # print("Conv Layer 4: ", Norm_E_4.shape)
         # Conv layer 5
         Conv_E_5 = self.Conv_E_5(Norm_E_4)
         Act_E_5 = self.Act_E_1(Conv_E_5)
         Norm_E_5 = self.Norm_E_5(Act_E_5)
+        # print("Conv Layer 5: ", Norm_E_5.shape)
         # Dense layer for mu and log variance
         Flat_E_1 = self.Flat_E_1(Norm_E_5)
+        # print("Flattened Shape: ", Flat_E_1.shape)
         mu = self.Dense_E_1(Flat_E_1)
         log_variance = self.Dense_E_1(Flat_E_1)
 
-        z = sample_from_distribution(mu, log_variance, DEVICE, shape=LATENT_SIZE)
+        z = sample_from_distribution(mu, log_variance)
 
         return z, mu, log_variance
 
@@ -79,6 +88,7 @@ class Decoder(nn.Module):
 
         # Check is calculating this power and cast kills performance
         self.Dense_D_1 = nn.Linear(LATENT_SIZE, 32 * int(256/pow(2,5)) * int(64/pow(2,4)))
+        # self.Dense_D_1 = nn.Linear(LATENT_SIZE, 32 * int(256/pow(2,5)) * int(32/pow(2,4)))
         self.ConvT_D_1 = nn.ConvTranspose2d(32, 32, stride=(2,1), kernel_size=3, padding = 3//2, output_padding = (1,0))
         # Note the need to add output padding here for tranposed dimensions to match
         self.ConvT_D_2 = nn.ConvTranspose2d(32, 64, stride=2, kernel_size=3, padding = 3//2, output_padding = 1)
@@ -102,6 +112,7 @@ class Decoder(nn.Module):
         Dense_D_1 = self.Dense_D_1(z)
         # TODO: Find a nicer way of doing this programatically
         # Reshape based on the number striding used in encoder
+        # Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, int(256/pow(2,5)), int(32/pow(2,4))))
         Reshape_D_1 = torch.reshape(Dense_D_1, (BATCH_SIZE, 32, int(256/pow(2,5)), int(64/pow(2,4))))
         # Conv layer 1
         Conv_D_1 = self.ConvT_D_1(Reshape_D_1)

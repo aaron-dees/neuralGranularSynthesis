@@ -81,28 +81,28 @@ class RNN_v1(nn.Module):
         x = self.linear(x)
         return x
 
-# class RNN_v2(nn.Module):
-#     def __init__(self,
-# 				 input_size,
-# 				 hidden_size,
-# 				 output_size,
-# 				 rnn_layers):
-#         super().__init__()
+class RNN_v2(nn.Module):
+    def __init__(self,
+				 input_size,
+				 hidden_size,
+				 output_size,
+				 rnn_layers):
+        super().__init__()
 		
-#         self.input_size = input_size
-#         self.hidden_size = hidden_size
-#         self.output_size = output_size
-#         self.rnn_layers = rnn_layers
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.rnn_layers = rnn_layers
 
-# 		self.linear1 = nn.Linear(self.input_size, self.hidden_size)
-#         self.lstm = nn.LSTM(input_size=self.hidden_size, hidden_size=self.hidden_size, num_layers=self.rnn_layers, batch_first=True)
-#         self.linear2 = nn.Linear(self.hidden_size, self.output_size)
+        self.linear1 = nn.Linear(self.input_size, self.hidden_size)
+        self.lstm = nn.LSTM(input_size=self.hidden_size, hidden_size=self.hidden_size, num_layers=self.rnn_layers, batch_first=True)
+        self.linear2 = nn.Linear(self.hidden_size, self.output_size)
 
-#     def forward(self, x):
-# 		x = self.linear1(x)
-#         x, _ = self.lstm(x)
-#         x = self.linear2(x)
-#         return x
+    def forward(self, x):
+        x = self.linear1(x)
+        x, _ = self.lstm(x)
+        x = self.linear2(x)
+        return x
     
 # class RNN_v1(nn.Module):
 

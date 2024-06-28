@@ -153,3 +153,20 @@ def compute_losses(self, batch, beta):
     else:
         env_loss = 0
     return {"spec_loss":spec_loss,"kld_loss":kld_loss,"env_loss":env_loss}
+
+# def compute_spec_loss(target, prediction, log_dist=0, mel_dist=True):
+#     loss = 0
+#     stft_dist = (prediction-target).abs().mean()
+#     loss = loss+stft_dist
+#     if log_dist>0:
+#         loss = loss+(safe_log(prediction)-safe_log(target)).abs().mean()*log_dist
+#     if mel_dist:
+#         # convert to mel
+#         M_inp,M_tar = self.T_mel[i](x_inp),self.T_mel[i](x_tar)
+#                 mel_dist = (M_inp-M_tar).abs().mean()
+#                 loss = loss+mel_dist
+#                 n_scales += 1
+#                 if self.log_dist>0:
+#                     loss = loss+(safe_log(M_inp)-safe_log(M_tar)).abs().mean()*self.log_dist
+#                     n_scales += self.log_dist
+#         return loss/n_scales

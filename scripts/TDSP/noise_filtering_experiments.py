@@ -41,21 +41,33 @@ for batch, labels in test_dataloader:
     # use librosa to get log mag spec
     # print(batch.shape)
     if(CENTER_PADDING):
-        stft_audio = librosa.stft(batch[:, 256:-256].squeeze().cpu().numpy(), n_fft = l_grain, hop_length = hop_size, center=True)
+        # stft_audio = librosa.stft(batch[:, 256:-256].squeeze().cpu().numpy(), n_fft = l_grain, hop_length = hop_size, center=True)
+        ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
+        stft_audio = torch.stft(batch[:, 256:-256].squeeze().cpu(), n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
     else:
         stft_audio = librosa.stft(batch.squeeze().cpu().numpy(), n_fft = l_grain, hop_length = hop_size, center=True)
     print("STFT: ", stft_audio.shape)
-    y_audio = np.abs(stft_audio) ** 2
-    y_inv = librosa.griffinlim(np.abs(stft_audio))
-    print(y_inv.shape)
-    torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_stftGriffLim.wav',torch.from_numpy(y_inv).unsqueeze(0).cpu(), SAMPLE_RATE)
-    # y_log_audio = librosa.power_to_db(y_audio)
-    y_log_audio = 10 * np.log10(y_audio) 
-    cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
+
+    # y_inv = librosa.griffinlim(np.abs(stft_audio))
+    transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+    y_inv = transform(torch.abs(stft_audio))
+    # y_inv = transform(torch.abs(torch.from_numpy(stft_audio)))
+    torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_stftGriffLim.wav',y_inv.unsqueeze(0).cpu(), SAMPLE_RATE)
+   
+   
+    # y_log_audio = librosa.power_to_db(stft_audio)
+    y_log_audio = 20*dsp.safe_log10(torch.abs(stft_audio))
+    # y_log_audio = 20*dsp.safe_log10(torch.abs(torch.from_numpy(stft_audio)))
+    
+    # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
+    cepstral_coeff = dct.dct(y_log_audio.permute(1,0))
     cepstral_coeff[:,NUM_CC:] = 0
     inv_cepstral_coeff_librosa = 10**(dct.idct(cepstral_coeff) / 20)
-    # plt.plot(inv_cepstral_coeff_librosa[9])
+    # plt.figure()
+    # librosa.display.specshow(inv_cepstral_coeff_librosa.permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+    # plt.colorbar()
     # plt.savefig("test.png")
+    # plt.plot(inv_cepstral_coeff_librosa[9])
 
 
     # test librosa lpc
@@ -86,9 +98,10 @@ mb_grains = mb_grains.reshape(bs*n_grains,l_grain)
 grain_fft = torch.fft.rfft(mb_grains)
 # grain_db = 20*dsp.safe_log10(np.abs(grain_fft))
 #GriffinLim test
-grain_inv = librosa.griffinlim(torch.abs(grain_fft).permute(1,0).cpu().numpy())
+transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+grain_inv = transform(torch.abs(grain_fft).permute(1,0))
 print(grain_inv.shape)
-torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_grainGriffLim.wav',torch.from_numpy(grain_inv).unsqueeze(0).cpu(), SAMPLE_RATE)
+# torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_grainGriffLim.wav',grain_inv.unsqueeze(0).cpu(), SAMPLE_RATE)
 
 grain_db = 20*dsp.safe_log10(np.abs(grain_fft))
 cepstral_coeff = dct.dct(grain_db)
@@ -108,6 +121,10 @@ inv_mfccs = dct.idct(mfccs).cpu().numpy()
 # inv_mfccs = inv_mfccs.permute(1,0).cpu().numpy()
 inv_mfccs = librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)
 inv_mfccs = torch.from_numpy(inv_mfccs).permute(1,0)
+# plt.figure()
+# librosa.display.specshow(inv_mfccs.permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+# plt.colorbar()
+# plt.savefig("test.png")
 
 # inv_mfccs[inv_mfccs == 0] = 1e-10
 
@@ -131,12 +148,12 @@ sig_noise_mfcc = torch.fft.irfft(sig_noise_fft_mfcc)
 
 # plt.plot(sig_noise_fft_cc[9])
 # plt.plot(np.abs(grain_fft[9]))
-plt.plot(inv_mfccs[9])
+# plt.plot(inv_mfccs[9])
 # plt.plot(inv_cepstral_coeff[9])
 # plt.figure()
 # # librosa.display.specshow(dsp.safe_log10(torch.abs(sig_noise_fft_cc)**2).cpu().numpy())
 # librosa.display.specshow(dsp.safe_log10(torch.abs(noise)**2).cpu().numpy())
-plt.savefig("test.png")
+# plt.savefig("test.png")
 
 # Get the impulse response from the inverted cepstral coefficients
 filter_ir = dsp.amp_to_impulse_response(inv_cepstral_coeff, l_grain)
@@ -253,7 +270,7 @@ for i in range(audio_sum.shape[0]):
 
 # Additional loss based on griffinLim
 fad_score = frechet.score(f"/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/real_audio", f"/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio", dtype="float32")
-spec_loss = spec_dist(torch.from_numpy(y_inv), batch[0])
+spec_loss = spec_dist(y_inv, batch[0])
 print("GriffinLim Spectral Loss: ", spec_loss)
 print("GriffinLim FAD Score: ", fad_score)
 

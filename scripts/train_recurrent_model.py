@@ -2,7 +2,7 @@ import sys
 sys.path.append('../')
 
 from models.noiseFiltering_models.spectral_shape_model import SpectralVAE_v1, SpectralVAE_v2
-from models.temporal_models.recurrent_model import RNN_v1
+from models.temporal_models.recurrent_model import RNN_v1, RNN_v2
 from models.dataloaders.waveform_dataloaders import  make_audio_dataloaders
 from models.dataloaders.latent_dataloaders import make_latent_dataloaders
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance
@@ -107,14 +107,13 @@ if __name__ == "__main__":
     # print(test_latents.shape)
 
     # train_latents = train_latents[:128, :, :]
+    plot_latents(test_latents, test_labels,["wind"], "./images/")
 
 
     # lookback = 150
     X_train, y_train = create_dataset(train_latents, lookback=LOOKBACK)
     val_X_train, val_y_train = create_dataset(val_latents, lookback=LOOKBACK)
     X_test, y_test = create_dataset(test_latents, lookback=LOOKBACK)
-    print(X_train.shape)
-    print(train_latents.shape)
 
     X_train = X_train.reshape(-1, X_train.shape[2], X_train.shape[3])
     y_train = y_train.reshape(-1, y_train.shape[2], y_train.shape[3])
@@ -124,13 +123,15 @@ if __name__ == "__main__":
     y_test = y_test.reshape(-1, y_test.shape[2], y_test.shape[3])
 
     l_model = RNN_v1(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
+    # l_model = RNN_v2(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
 
     optimizer = torch.optim.Adam(l_model.parameters(), lr=LEARNING_RATE)
     # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=4000)
     loss_fn = nn.MSELoss()
     # Note the batch size here 
     loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), shuffle=True, batch_size=BATCH_SIZE)
-    
+    val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(val_X_train, val_y_train), shuffle=True, batch_size=BATCH_SIZE)
+
     if TRAIN:
 
         if LOAD_LATENT_CHECKPOINT:
@@ -150,7 +151,7 @@ if __name__ == "__main__":
 
         for epoch in range(EPOCHS):
             l_model.train()
-            running_rmse = 0.0;
+            running_rmse = 0.0
             for X_batch, y_batch in loader:
                 y_pred = l_model(X_batch)
                 loss = loss_fn(y_pred, y_batch)
@@ -165,16 +166,15 @@ if __name__ == "__main__":
             if epoch % EVAL_EVERY != 0:
                 continue
             l_model.eval()
+            running_val_rmse = 0.0
             with torch.no_grad():
-                # y_pred = l_model(X_train)
-                # train_rmse = np.sqrt(loss_fn(y_pred, y_train))
-                y_pred = l_model(val_X_train)
-                val_rmse = np.sqrt(loss_fn(y_pred, val_y_train))
+                for val_X_batch, val_y_batch in val_loader:
+                    y_pred = l_model(val_X_train)
+                    running_val_rmse += np.sqrt(loss_fn(y_pred, val_y_train))
 
             # Run the test case - NOTE, this should be only over newly generated samples
             with torch.no_grad():
                 y_pred = l_model(X_test)
-                test_rmse = np.sqrt(loss_fn(y_pred, y_test))
 
             # Take the first sequence that is fed to the model
             recon_latent = X_test[0,:,:]
@@ -188,6 +188,7 @@ if __name__ == "__main__":
             sampled_seq_loss = loss_fn(recon_latent[LOOKBACK:, :] ,test_latents[0, LOOKBACK:, :])
 
             train_rmse = running_rmse/len(loader)
+            val_rmse = running_val_rmse/len(val_loader)
 
             print("Epoch %d: train RMSE %.4f, validation RMSE %.4f" % (epoch, train_rmse, val_rmse))
 
@@ -245,8 +246,6 @@ if __name__ == "__main__":
         recon_latent = X_test[0,:,:]
         # Add the next 10 samples on
         tmp = X_test[0,:,:].unsqueeze(0)
-        print("Out hsape: ", tmp.shape)
-        print(y_pred.shape)
         for i in range(0, y_pred.shape[0]):
             tmp = l_model(tmp)
             recon_latent = torch.cat((recon_latent, tmp[0,-1,:].unsqueeze(0)), dim=0)

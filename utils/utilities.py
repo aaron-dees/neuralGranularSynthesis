@@ -56,6 +56,7 @@ def show_image_comparisons(images, x_hat):
     plt.savefig("comparisons.png")
 
 def plot_latents(train_latents,train_labels, classes,export_dir):
+    print(train_labels)
     if os.path.exists(export_dir) is False:
         os.makedirs(export_dir)
     n_grains = train_latents.shape[1]
@@ -69,7 +70,8 @@ def plot_latents(train_latents,train_labels, classes,export_dir):
     train_latents = pca.transform(train_latents)
     print(f'PCA Shape: {train_latents.shape}')
     # TODO: shuffle samples for better plotting
-    sns.scatterplot(x=train_latents[:,0], y=train_latents[:,1], hue=train_labels, s=1)
+    sns.scatterplot(x=train_latents[:,0], y=train_latents[:,1], hue=train_labels, s=4)
+    plt.plot(train_latents[:,0], train_latents[:,1], color="green", linestyle='dashed', marker='o')
     plt.legend(loc='upper right')
     plt.savefig(os.path.join(export_dir,"latent_scatter_trainset.pdf"))
     plt.close("all")
