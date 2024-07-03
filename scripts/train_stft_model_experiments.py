@@ -10,6 +10,8 @@ from utils.dsp_components import safe_log10, noise_filtering, mod_sigmoid
 import torch_dct as dct
 import librosa
 from frechet_audio_distance import FrechetAudioDistance
+import matplotlib.pyplot as plt
+import librosa.display
 
 
 import torch
@@ -218,79 +220,94 @@ if __name__ == "__main__":
                 
                 # ---------- Get CCs, or MFCCs and invert END ----------
 
+                grain_fft_abs = torch.abs(grain_fft)
+                grain_min = grain_fft_abs.min()
+                grain_max = grain_fft_abs.max()
+                norm_array = (grain_fft_abs - grain_fft_abs.min()) / (grain_fft_abs.max() - grain_fft_abs.min())
+                norm_array = norm_array * (1 - 0) + 0
+
                 # ---------- Run Model ----------
 
                 # x_hat, z, mu, log_variance = model(mb_grains)   
-                x_hat, z, mu, log_variance = model(torch.abs(grain_fft))   
+                x_hat, z, mu, log_variance = model(torch.abs(norm_array))   
+                # x_hat, z, mu, log_variance = model(torch.abs(grain_fft))   
                 # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                 # ---------- Run Model END ----------
 
-                # ---------- Noise Filtering ----------
-                # Step 5 - Noise Filtering
-                # Reshape for noise filtering - TODO Look if this is necesary
-                x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
+                # denorm array
+                denorm_array = (x_hat - 0) / (1 - 0)
+                denorm_array = denorm_array * (grain_max - grain_min) + grain_min 
 
-                # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-                filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
-                audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
+                transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+                audio_sum = transform(torch.abs(denorm_array.permute(0,2,1)))
 
-                # ---------- Noise Filtering END ----------
+                ## ---------- Noise Filtering ----------
+                ## Step 5 - Noise Filtering
+                ## Reshape for noise filtering - TODO Look if this is necesary
+                #x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
 
-                # ---------- Concatonate Grains ----------
+                ## Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
+                #filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
+                #audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
 
-                # Check if number of grains wanted is entered, else use the original
-                if n_grains is None:
-                    audio = audio.reshape(-1, n_grains, l_grain)
-                else:
-                    audio = audio.reshape(-1,n_grains,l_grain)
-                bs = audio.shape[0]
+                ## ---------- Noise Filtering END ----------
 
-                # Check if an overlapp add window has been passed, if not use that used in encoding.
-                audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+                ## ---------- Concatonate Grains ----------
 
-                # Folder
-                # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
-                # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-                ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
-                # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-                # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-                # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-                # since kernel size is l_grain, this is needed in the second dimension.
-                audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+                ## Check if number of grains wanted is entered, else use the original
+                #if n_grains is None:
+                    #audio = audio.reshape(-1, n_grains, l_grain)
+                #else:
+                    #audio = audio.reshape(-1,n_grains,l_grain)
+                #bs = audio.shape[0]
 
-                # Normalise the energy values across the audio samples
-                if NORMALIZE_OLA:
-                    unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-                    input_ones = torch.ones(1,1,tar_l,1)
-                    ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                    ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
-                    audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+                ## Check if an overlapp add window has been passed, if not use that used in encoding.
+                #audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
-                # ---------- Concatonate Grains END ----------
+                ## Folder
+                ## Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
+                ## can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
+                #ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
+                ## Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+                ## This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+                ## Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+                ## since kernel size is l_grain, this is needed in the second dimension.
+                #audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+
+                ## Normalise the energy values across the audio samples
+                #if NORMALIZE_OLA:
+                    #unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
+                    #input_ones = torch.ones(1,1,tar_l,1)
+                    #ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+                    #ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
+                    #audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+                ## ---------- Concatonate Grains END ----------
                     
-                # ---------- Postprocessing Kernel ----------
+                ## ---------- Postprocessing Kernel ----------
 
-                # NOTE Removed the post processing step for now
-                # This module applies a multi-channel temporal convolution that
-                # learns a parallel set of time-invariant FIR filters and improves
-                # the audio quality of the assembled signal.
-                # TODO Add back in ?
-                # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
+                ## NOTE Removed the post processing step for now
+                ## This module applies a multi-channel temporal convolution that
+                ## learns a parallel set of time-invariant FIR filters and improves
+                ## the audio quality of the assembled signal.
+                ## TODO Add back in ?
+                ## audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
                     
-                # ---------- Postprocessing Kernel END ----------
+                ## ---------- Postprocessing Kernel END ----------
                     
-                # ---------- Normalise the audio ----------
+                ## ---------- Normalise the audio ----------
                     
-                # Normalise the audio, as is done in dataloader.
-                # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-                # audio_sum = audio_sum * 0.9
+                ## Normalise the audio, as is done in dataloader.
+                ## audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                ## audio_sum = audio_sum * 0.9
 
-                # ---------- Normalise the audio END ----------
+                ## ---------- Normalise the audio END ----------
 
                 #mu shape: [bs*n_grains, z_dim]
                 # Compute loss
-                spec_loss = spec_dist(audio_sum[:, l_grain//2:-l_grain//2], waveform)
+                spec_loss = spec_dist(audio_sum, waveform)
+                # spec_loss = spec_dist(audio_sum[:, l_grain//2:-l_grain//2], waveform)
                 # spec_loss = calc_reconstruction_loss(torch.abs(grain_fft), x_hat_old)
                 if beta > 0:
                     kld_loss = compute_kld(mu, log_variance) * beta
@@ -380,80 +397,94 @@ if __name__ == "__main__":
                     # inv_mfccs = inv_mfccs.permute(0,2,1)
 
                     # ---------- Get CCs, or MFCCs and invert END ----------
+                    grain_fft_abs = torch.abs(grain_fft)
+                    grain_min = grain_fft_abs.min()
+                    grain_max = grain_fft_abs.max()
+                    norm_array = (grain_fft_abs - grain_fft_abs.min()) / (grain_fft_abs.max() - grain_fft_abs.min())
+                    norm_array = norm_array * (1 - 0) + 0
 
                     # ---------- Run Model ----------
 
                     # x_hat, z, mu, log_variance = model(mb_grains)   
-                    x_hat, z, mu, log_variance = model(torch.abs(grain_fft))   
-                    # x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
+                    x_hat, z, mu, log_variance = model(torch.abs(norm_array))   
+                    # x_hat, z, mu, log_variance = model(torch.abs(grain_fft))   
                     # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                     # ---------- Run Model END ----------
 
-                    # ---------- Noise Filtering ----------
+                    # denorm array
+                    denorm_array = (x_hat - 0) / (1 - 0)
+                    denorm_array = denorm_array * (grain_max - grain_min) + grain_min 
 
-                    # Reshape for noise filtering - TODO Look if this is necesary
-                    x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
+                    transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+                    audio_sum = transform(torch.abs(denorm_array.permute(0,2,1)))
 
-                    # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-                    filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
-                    audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
 
-                    # ---------- Noise Filtering END ----------
+                    # # ---------- Noise Filtering ----------
 
-                    # ---------- Concatonate Grains ----------
+                    # # Reshape for noise filtering - TODO Look if this is necesary
+                    # x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
 
-                    # Check if number of grains wanted is entered, else use the original
-                    if n_grains is None:
-                        audio = audio.reshape(-1, n_grains, l_grain)
-                    else:
-                        audio = audio.reshape(-1,n_grains,l_grain)
-                    bs = audio.shape[0]
+                    # # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
+                    # filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
+                    # audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
 
-                    # Check if an overlapp add window has been passed, if not use that used in encoding.
-                    audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+                    # # ---------- Noise Filtering END ----------
 
-                    # Folder
-                    # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
-                    # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-                    ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
-                    # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-                    # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-                    # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-                    # since kernel size is l_grain, this is needed in the second dimension.
-                    audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+                    # # ---------- Concatonate Grains ----------
 
-                    # Normalise the energy values across the audio samples
-                    if NORMALIZE_OLA:
-                        unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-                        input_ones = torch.ones(1,1,tar_l,1)
-                        ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                        ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
-                        audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+                    # # Check if number of grains wanted is entered, else use the original
+                    # if n_grains is None:
+                    #     audio = audio.reshape(-1, n_grains, l_grain)
+                    # else:
+                    #     audio = audio.reshape(-1,n_grains,l_grain)
+                    # bs = audio.shape[0]
 
-                    # ---------- Concatonate Grains END ----------
+                    # # Check if an overlapp add window has been passed, if not use that used in encoding.
+                    # audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+
+                    # # Folder
+                    # # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
+                    # # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
+                    # ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
+                    # # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+                    # # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+                    # # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+                    # # since kernel size is l_grain, this is needed in the second dimension.
+                    # audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+
+                    # # Normalise the energy values across the audio samples
+                    # if NORMALIZE_OLA:
+                    #     unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
+                    #     input_ones = torch.ones(1,1,tar_l,1)
+                    #     ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+                    #     ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
+                    #     audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+                    # # ---------- Concatonate Grains END ----------
                         
-                    # ---------- Post Processing Kernel ----------
+                    # # ---------- Post Processing Kernel ----------
 
-                    # NOTE Removed the post processing step for now
-                    # This module applies a multi-channel temporal convolution that
-                    # learns a parallel set of time-invariant FIR filters and improves
-                    # the audio quality of the assembled signal.
-                    # TODO Add back in ?
-                    # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
+                    # # NOTE Removed the post processing step for now
+                    # # This module applies a multi-channel temporal convolution that
+                    # # learns a parallel set of time-invariant FIR filters and improves
+                    # # the audio quality of the assembled signal.
+                    # # TODO Add back in ?
+                    # # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
                         
-                    # ---------- Post Processing Kernel END ----------
+                    # # ---------- Post Processing Kernel END ----------
                         
-                    # ---------- Normalise the audio ----------
+                    # # ---------- Normalise the audio ----------
 
-                    # Normalise the audio, as is done in dataloader.
-                    # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-                    # audio_sum =audio_sum * 0.9
+                    # # Normalise the audio, as is done in dataloader.
+                    # # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                    # # audio_sum =audio_sum * 0.9
 
-                    # ---------- Normalise the audio END ----------
+                    # # ---------- Normalise the audio END ----------
 
                     # Compute loss
-                    spec_loss = spec_dist(audio_sum[:, l_grain//2:-l_grain//2], waveform)
+                    # spec_loss = spec_dist(audio_sum[:, l_grain//2:-l_grain//2], waveform)
+                    spec_loss = spec_dist(audio_sum, waveform)
                     # spec_loss = calc_reconstruction_loss(torch.abs(grain_fft), x_hat_old)
                     if beta > 0:
                         kld_loss = compute_kld(mu, log_variance) * beta
@@ -530,6 +561,7 @@ if __name__ == "__main__":
                         dataiter = iter(test_dataloader)
                         waveform, labels = next(dataiter)
                         waveform = waveform.to(DEVICE)
+                        print("initial shape", waveform.shape)
 
                         ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
                         stft_audio = torch.stft(waveform, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
@@ -568,67 +600,79 @@ if __name__ == "__main__":
                         # inv_mfccs = inv_mfccs.permute(0,2,1)
 
                         # ---------- Get CCs, or MFCCs and invert END ----------
-
+                        grain_fft_abs = torch.abs(grain_fft)
+                        grain_min = grain_fft_abs.min()
+                        grain_max = grain_fft_abs.max()
+                        norm_array = (grain_fft_abs - grain_fft_abs.min()) / (grain_fft_abs.max() - grain_fft_abs.min())
+                        norm_array = norm_array * (1 - 0) + 0
 
                         # ---------- Run Model ----------
 
                         # x_hat, z, mu, log_variance = model(mb_grains)   
-                        x_hat, z, mu, log_variance = model(torch.abs(grain_fft))   
+                        x_hat, z, mu, log_variance = model(torch.abs(norm_array))   
+                        # x_hat, z, mu, log_variance = model(torch.abs(grain_fft))   
                         # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
                         # ---------- Run Model END ----------
 
-                        # Check and save griffin lim inversion for comparision
+                        # denorm array
+                        denorm_array = (x_hat - 0) / (1 - 0)
+                        denorm_array = denorm_array * (grain_max - grain_min) + grain_min 
+
                         transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
-                        y_inv = transform(torch.abs(x_hat.permute(0,2,1)))
-                        torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fft_audio/griffinLim_recon.wav', y_inv.cpu(), SAMPLE_RATE)
+                        audio_sum = transform(torch.abs(denorm_array.permute(0,2,1)))
 
-                        # ---------- Noise Filtering ----------
 
-                        # Reshape for noise filtering - TODO Look if this is necesary
-                        x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
+                        # print("recon shape", y_inv.shape)
+                        # torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fft_audio/griffinLim_recon.wav', y_inv.cpu(), SAMPLE_RATE)
 
-                        # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-                        filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
-                        audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
+                        # # ---------- Noise Filtering ----------
 
-                        # ---------- Noise Filtering END ----------
+                        # # Reshape for noise filtering - TODO Look if this is necesary
+                        # x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
 
-                        # ---------- Concatonate Grains ----------
+                        # # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
+                        # filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
+                        # audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
 
-                        # Check if number of grains wanted is entered, else use the original
-                        if n_grains is None:
-                            audio = audio.reshape(-1, n_grains, l_grain)
-                        else:
-                            audio = audio.reshape(-1,n_grains,l_grain)
-                        bs = audio.shape[0]
+                        # # ---------- Noise Filtering END ----------
 
-                        # Check if an overlapp add window has been passed, if not use that used in encoding.
-                        audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+                        # # ---------- Concatonate Grains ----------
 
-                        # Folder
-                        # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
-                        # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-                        ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
-                        # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-                        # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-                        # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-                        # since kernel size is l_grain, this is needed in the second dimension.
-                        audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+                        # # Check if number of grains wanted is entered, else use the original
+                        # if n_grains is None:
+                        #     audio = audio.reshape(-1, n_grains, l_grain)
+                        # else:
+                        #     audio = audio.reshape(-1,n_grains,l_grain)
+                        # bs = audio.shape[0]
 
-                        # Normalise the energy values across the audio samples
-                        if NORMALIZE_OLA:
-                            unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-                            input_ones = torch.ones(1,1,tar_l,1)
-                            ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                            ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
-                            audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+                        # # Check if an overlapp add window has been passed, if not use that used in encoding.
+                        # audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
-                        # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-                        # audio_sum =audio_sum * 0.9
+                        # # Folder
+                        # # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
+                        # # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
+                        # ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
+                        # # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+                        # # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+                        # # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+                        # # since kernel size is l_grain, this is needed in the second dimension.
+                        # audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+
+                        # # Normalise the energy values across the audio samples
+                        # if NORMALIZE_OLA:
+                        #     unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
+                        #     input_ones = torch.ones(1,1,tar_l,1)
+                        #     ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+                        #     ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
+                        #     audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+
+                        # # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+                        # # audio_sum =audio_sum * 0.9
 
                         # Get the spectral loss
-                        spec_loss = spec_dist(audio_sum[:, l_grain//2:-l_grain//2], waveform)
+                        spec_loss = spec_dist(audio_sum, waveform)
+                        # spec_loss = spec_dist(audio_sum[:, l_grain//2:-l_grain//2], waveform)
                         # spec_loss = calc_reconstruction_loss(torch.abs(grain_fft), x_hat_old)
 
                         for i, recon_signal in enumerate(audio_sum):
@@ -693,6 +737,9 @@ if __name__ == "__main__":
 
             waveforms = waveforms.to(DEVICE)
 
+            ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
+            stft_audio = torch.stft(waveforms, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
+            grain_fft = stft_audio.permute(0,2,1)
 
             # ---------- Turn Waveform into grains ----------
             ola_window = signal.hann(l_grain,sym=False)
@@ -701,13 +748,13 @@ if __name__ == "__main__":
             ola_windows[-1,l_grain//2:] = ola_window[l_grain//2] # end of last grain is not wondowed to preserving decays
             ola_windows = nn.Parameter(ola_windows,requires_grad=False).to(DEVICE)
 
-            slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
-            mb_grains = F.conv1d(waveforms.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
-            mb_grains = mb_grains.permute(0,2,1)
-            bs = mb_grains.shape[0]
-            # repeat the overlap add windows acrosss the batch and apply to the grains
-            mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
-            grain_fft = torch.fft.rfft(mb_grains)
+            # slice_kernel = nn.Parameter(torch.eye(l_grain).unsqueeze(1),requires_grad=False).to(DEVICE)
+            # mb_grains = F.conv1d(waveforms.unsqueeze(1),slice_kernel,stride=hop_size,groups=1,bias=None)
+            # mb_grains = mb_grains.permute(0,2,1)
+            # bs = mb_grains.shape[0]
+            # # repeat the overlap add windows acrosss the batch and apply to the grains
+            # mb_grains = mb_grains*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+            # grain_fft = torch.fft.rfft(mb_grains)
             # ---------- Turn Waveform into grains END ----------
 
             # ---------- Get CCs, or MFCCs and invert ----------
@@ -728,64 +775,90 @@ if __name__ == "__main__":
 
             # ---------- Get CCs, or MFCCs and invert END ----------
 
+            grain_fft_abs = torch.abs(grain_fft)
+            grain_min = grain_fft_abs.min()
+            grain_max = grain_fft_abs.max()
+            norm_array = (grain_fft_abs - grain_fft_abs.min()) / (grain_fft_abs.max() - grain_fft_abs.min())
+            norm_array = norm_array * (1 - 0) + 0
+            
+            denorm_array = (norm_array - 0) / (1 - 0)
+            denorm_array = denorm_array * (grain_max - grain_min) + grain_min
+            transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+            audio_sum = transform(denorm_array.permute(0,2,1))
+            torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/griffinLim.wav", audio_sum[0].unsqueeze(0).cpu(), SAMPLE_RATE)
+            mod_grain_fft = mod_sigmoid(torch.abs(grain_fft))
+            print("Max value: ", mod_grain_fft.max())
+
+            plt.figure()
+            librosa.display.specshow(denorm_array[0].permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+            plt.colorbar()
+            plt.savefig("test.png")
+
 
             # ---------- Run Model ----------
 
-            x_hat, z, mu, log_variance = model(inv_cep_coeffs)   
-
+            x_hat, z, mu, log_variance = model(torch.abs(grain_fft))
 
             # ---------- Run Model END ----------
+
+            # plt.figure()
+            # librosa.display.specshow(x_hat[0].permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+            # plt.colorbar()
+            # plt.savefig("test.png")
+
+            transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+            audio_sum = transform(torch.abs(x_hat.permute(0,2,1)))
 
             # ---------- Noise Filtering ----------
 
             # Reshape for noise filtering - TODO Look if this is necesary
-            x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
+            # x_hat = x_hat.reshape(x_hat.shape[0]*x_hat.shape[1],x_hat.shape[2])
 
-            # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
-            filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
-            audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
+            # # Noise filtering (Maybe try using the new noise filtering function and compare to current method...)
+            # filter_window = nn.Parameter(torch.fft.fftshift(torch.hann_window(l_grain)),requires_grad=False).to(DEVICE)
+            # audio = noise_filtering(x_hat, filter_window, n_grains, l_grain, HOP_SIZE_RATIO)
 
-            # ---------- Noise Filtering END ----------
+            # # ---------- Noise Filtering END ----------
 
-            # ---------- Concatonate Grains ----------
+            # # ---------- Concatonate Grains ----------
 
-            # Check if number of grains wanted is entered, else use the original
-            if n_grains is None:
-                audio = audio.reshape(-1, n_grains, l_grain)
-            else:
-                audio = audio.reshape(-1,n_grains,l_grain)
-            bs = audio.shape[0]
+            # # Check if number of grains wanted is entered, else use the original
+            # if n_grains is None:
+            #     audio = audio.reshape(-1, n_grains, l_grain)
+            # else:
+            #     audio = audio.reshape(-1,n_grains,l_grain)
+            # bs = audio.shape[0]
 
-            # Check if an overlapp add window has been passed, if not use that used in encoding.
-            audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
+            # # Check if an overlapp add window has been passed, if not use that used in encoding.
+            # audio = audio*(ola_windows.unsqueeze(0).repeat(bs,1,1))
 
-            # Folder
-            # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
-            # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
-            ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
-            # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
-            # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
-            # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
-            # since kernel size is l_grain, this is needed in the second dimension.
-            audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
+            # # Folder
+            # # Folds input tensor into shape [bs, channels, tar_l, 1], using a kernel size of l_grain, and stride of hop_size
+            # # can see doc here, https://pytorch.org/docs/stable/generated/torch.nn.Fold.html
+            # ola_folder = nn.Fold((tar_l,1),(l_grain,1),stride=(hop_size,1))
+            # # Overlap add folder, folds and reshapes audio into target dimensions, so [bs, tar_l]
+            # # This is essentially folding and adding the overlapping grains back into original sample size, based on the given hop size.
+            # # Note that shape is changed here, so that input tensor is of chape [bs, channel X (kernel_size), L],
+            # # since kernel size is l_grain, this is needed in the second dimension.
+            # audio_sum = ola_folder(audio.permute(0,2,1)).squeeze()
 
-            # Normalise the energy values across the audio samples
-            if NORMALIZE_OLA:
-                unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
-                input_ones = torch.ones(1,1,tar_l,1)
-                ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
-                ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
-                audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
+            # # Normalise the energy values across the audio samples
+            # if NORMALIZE_OLA:
+            #     unfolder = nn.Unfold((l_grain,1),stride=(hop_size,1))
+            #     input_ones = torch.ones(1,1,tar_l,1)
+            #     ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+            #     ola_divisor = nn.Parameter(ola_divisor,requires_grad=False).to(DEVICE)
+            #     audio_sum = audio_sum/ola_divisor.unsqueeze(0).repeat(bs,1)
 
-            # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
-            # audio_sum = audio_sum * 0.9
+            # # audio_sum = audio_sum / torch.max(torch.abs(audio_sum))
+            # # audio_sum = audio_sum * 0.9
 
-            # NOTE Removed the post processing step for now
-            # This module applies a multi-channel temporal convolution that
-            # learns a parallel set of time-invariant FIR filters and improves
-            # the audio quality of the assembled signal.
-            # TODO Add back in ?
-            # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
+            # # NOTE Removed the post processing step for now
+            # # This module applies a multi-channel temporal convolution that
+            # # learns a parallel set of time-invariant FIR filters and improves
+            # # the audio quality of the assembled signal.
+            # # TODO Add back in ?
+            # # audio_sum = self.post_pro(audio_sum.unsqueeze(1).repeat(1,self.pp_chans,1)).squeeze(1)
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
             spec_loss = spec_dist(audio_sum, waveforms)
@@ -797,7 +870,7 @@ if __name__ == "__main__":
 
             # print_spectral_shape(waveforms[0,:], spec[0,:,:].cpu().numpy(), hop_size, l_grain)
 
-            filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
+            # filter_spectral_shape(waveforms[0,:], hop_size, l_grain, n_grains, tar_l)
 
         #     spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
 
