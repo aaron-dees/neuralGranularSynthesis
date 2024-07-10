@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../')
 
-from models.spectrogram_models.ri_spec_model import RISpecVAE_v1
+from models.spectrogram_models.ri_spec_model import RISpecVAE_v1, RISpecVAE_v2
 from models.dataloaders.waveform_dataloaders import make_audio_dataloaders_noPadding
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
 from scripts.configs.hyper_parameters_spectral import *
@@ -79,7 +79,9 @@ if __name__ == "__main__":
     # test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
     test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders_noPadding(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
-    model = RISpecVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
+    # model = RISpecVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
+    # Note that I drop the n_grains by one here to deal with allowance for using the prev ri spec
+    model = RISpecVAE_v2(n_grains=n_grains-1, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
     # model = SpectralVAE_v2(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
     # model = SpectralVAE_v3(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE, channels = 32, kernel_size = 3, stride = 2)
     
@@ -218,13 +220,18 @@ if __name__ == "__main__":
                 
                 # # ---------- Get CCs, or MFCCs and invert END ----------
 
+                # --------- Extract the prev ri spec -----------
+                first_grain = ri_spec[:, 0, :]
+                current_ri_spec = ri_spec[:, 1:, :]
+                prev_ri_spec = ri_spec[:,:-1,:]
+
                 # ---------- Run Model ----------
 
                 # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
-                x_hat, z, mu, log_variance = model(ri_spec)   
+                x_hat, z, mu, log_variance = model(current_ri_spec, prev_ri_spec)   
                 # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
-                # print("train Pre: ", x_hat.sum())
+                x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
 
                 # ---------- Run Model END ----------
 
@@ -335,12 +342,18 @@ if __name__ == "__main__":
 
                     # # ---------- Get CCs, or MFCCs and invert END ----------
 
+                    # --------- Extract the prev ri spec -----------
+                    first_grain = ri_spec[:, 0, :]
+                    current_ri_spec = ri_spec[:, 1:, :]
+                    prev_ri_spec = ri_spec[:,:-1,:]
+
                     # ---------- Run Model ----------
 
                     # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
-                    x_hat, z, mu, log_variance = model(ri_spec)   
+                    x_hat, z, mu, log_variance = model(current_ri_spec, prev_ri_spec)   
                     # x_hat, z, mu, log_variance = model(inv_mfccs)   
-                    # print("val Pre: ", x_hat.sum())
+
+                    x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
 
                     # ---------- Run Model END ----------
 
@@ -473,11 +486,18 @@ if __name__ == "__main__":
 
                         # # ---------- Get CCs, or MFCCs and invert END ----------
 
+                        # --------- Extract the prev ri spec -----------
+                        first_grain = ri_spec[:, 0, :]
+                        current_ri_spec = ri_spec[:, 1:, :]
+                        prev_ri_spec = ri_spec[:,:-1,:]
+
                         # ---------- Run Model ----------
 
                         # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
-                        x_hat, z, mu, log_variance = model(ri_spec)   
+                        x_hat, z, mu, log_variance = model(current_ri_spec, prev_ri_spec)   
                         # x_hat, z, mu, log_variance = model(inv_mfccs)   
+
+                        x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
 
                         # ---------- Run Model END ----------
 
