@@ -189,6 +189,7 @@ class SpectralDecoder_v1(nn.Module):
         # decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
         decoder_linears += [nn.Linear(self.h_dim, self.filter_size)]
         self.decoder_linears = nn.Sequential(*decoder_linears)
+        self.sigmoid = nn.Sigmoid()
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
@@ -197,6 +198,7 @@ class SpectralDecoder_v1(nn.Module):
 
         # What does this do??
         filter_coeffs = mod_sigmoid(filter_coeffs)
+        # filter_coeffs = self.sigmoid(filter_coeffs)
 
         # Reshape back into the batch and grains
         filter_coeffs = filter_coeffs.reshape(-1, self.n_grains, (self.l_grain//2)+1)

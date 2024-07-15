@@ -126,7 +126,7 @@ if __name__ == "__main__":
         beta, beta_step_val, beta_step_size, warmup_start = init_beta(max_steps, TARGET_BETA, BETA_STEPS, BETA_WARMUP_START_PERC)
 
         if LOAD_CHECKPOINT:
-            checkpoint = torch.load(CHECKPOINT_LOAD_PATH)
+            checkpoint = torch.load(CHECKPOINT_LOAD_PATH, map_location=DEVICE)
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch']
@@ -788,6 +788,8 @@ if __name__ == "__main__":
             torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/griffinLim.wav", audio_sum[0].unsqueeze(0).cpu(), SAMPLE_RATE)
             mod_grain_fft = mod_sigmoid(torch.abs(grain_fft))
             print("Max value: ", mod_grain_fft.max())
+
+            print("SHape: ", denorm_array.shape)
 
             plt.figure()
             librosa.display.specshow(denorm_array[0].permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')

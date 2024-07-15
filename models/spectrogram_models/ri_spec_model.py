@@ -272,11 +272,10 @@ class RISpecVAE_v1(nn.Module):
 
         return x_hat, z, mu, log_variance
     
-# v2 take prev ri spec
+# v2 take prev ri spec grain and the spectral shape
 class RISpecEncoder_v2(nn.Module):
 
     def __init__(self,
-                    n_grains,
                     z_dim = 128,
                     l_grain=2048,
                     h_dim = 512
@@ -284,30 +283,46 @@ class RISpecEncoder_v2(nn.Module):
         super(RISpecEncoder_v2, self).__init__()
 
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         self.h_dim = h_dim
         self.z_dim = z_dim
 
-        self.filter_size = (int((l_grain//2)+1)) * 2
-        self.encoder_linears = nn.Sequential(linear_block(self.filter_size,h_dim))
-        self.mu = nn.Linear(h_dim,z_dim)
-        self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        self.filter_size = (int((l_grain//2)+1))
+        
+        self.Linear1 = nn.Linear(self.filter_size, h_dim)
+        self.Norm1 = nn.BatchNorm1d(h_dim)
+        self.Act1 = nn.LeakyReLU(0.2)
+
+        self.LinearMu = nn.Linear(h_dim,z_dim)
+        self.LinearLogvar = nn.Linear(h_dim,z_dim)
+        self.ActLogvar = nn.Hardtanh(min_val=-5.0, max_val=5.0)
+
+        # Initialise weights
+        torch.nn.init.xavier_uniform_(self.Linear1.weight) 
+        torch.nn.init.xavier_uniform_(self.LinearMu.weight) 
+        torch.nn.init.xavier_uniform_(self.LinearLogvar.weight) 
 
 
     def encode(self, x):
 
         # The reshape is important for the KL Loss and trating each grains as a batch value,
         # This reshap can be performed here or simply before the KL loss calculation.
-        mb_grains = x.reshape(x.shape[0]*self.n_grains,self.filter_size)
+        # moving out so n_grains is not required. 
+        # mb_grains = x.reshape(x.shape[0]*self.n_grains,self.filter_size)
 
-        # Linear layer
-        h = self.encoder_linears(mb_grains)
+        # print(" - In: ", x.sum().item())
+
+        # Linear layer x -> h
+        h = self.Linear1(x)
+        h = self.Norm1(h)
+        h = self.Act1(h)
+
 
         # h --> z
         # h of shape [bs*n_grains,z_dim]
-        mu = self.mu(h)
-        logvar = self.logvar(h)
+        mu = self.LinearMu(h)
+        logvar = self.LinearLogvar(h)
+        logvar = self.ActLogvar(logvar)
 
         # z of shape [bs*n_grains,z_dim]
         z = sample_from_distribution(mu, logvar)
@@ -353,7 +368,6 @@ class RISpecDecoder_v2(nn.Module):
     """
 
     def __init__(self,
-                    n_grains,
                     z_dim,
                     l_grain = 2048,
                     n_linears = 3,
@@ -361,46 +375,53 @@ class RISpecDecoder_v2(nn.Module):
                     ):
         super(RISpecDecoder_v2, self).__init__()
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         self.filter_size = (l_grain//2+1)*2
         self.z_dim = z_dim
         self.h_dim = h_dim
 
-        decoder_linears = [linear_block(self.z_dim+self.filter_size, self.h_dim)]
-        # decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
-        decoder_linears += [nn.Linear(self.h_dim, self.filter_size)]
-        self.decoder_linears = nn.Sequential(*decoder_linears)
-        self.sig = nn.Sigmoid()
+        self.Linear1 = nn.Linear(self.z_dim+self.filter_size, h_dim)
+        self.Norm1 = nn.BatchNorm1d(h_dim)
+        self.Act1 = nn.LeakyReLU(0.2)
 
-    def decode(self, z, prev_ri_spec, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
+        self.Linear2 = nn.Linear(self.h_dim, self.filter_size)
 
-        # Combine the batch and grains like in encoder
-        prev_ri_spec = prev_ri_spec.reshape(prev_ri_spec.shape[0]*self.n_grains,self.filter_size)
+        self.Act2 = nn.Sigmoid()
+        # self.Act2 = nn.Hardtanh(min_val=0.0, max_val=1.0)
+
+        # Initialise weights
+        torch.nn.init.xavier_uniform_(self.Linear1.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear2.weight) 
+
+    def decode(self, z, prev_ri_spec, ola_windows=None, ola_folder=None, ola_divisor=None):
+
         # Concatonate the prev ri spec and latent point
         z = torch.cat((z, prev_ri_spec), dim=1)
 
-        filter_coeffs = self.decoder_linears(z)
+        #z -> h
+        h = self.Linear1(z)
+        h = self.Norm1(h)
+        h = self.Act1(h)
+
+        h = self.Linear2(h)
+        # print("Decoder Linear grad: ", self.Linear2.weight.sum())
 
         # What does this do??
-        # filter_coeffs = mod_sigmoid(filter_coeffs)
-        filter_coeffs = 2.0 * self.sig(filter_coeffs) - 1.0
+        # h = mod_sigmoid(h)
+        # h = 2.0 * self.Act2(h) - 1.0
+        h = (2.0 * self.Act2(h) - 1.0) * (1.0 - 1e-7)
 
-        # Reshape back into the batch and grains
-        filter_coeffs = filter_coeffs.reshape(-1, self.n_grains, self.filter_size)
+        return h
 
-        return filter_coeffs
+    def forward(self, z, prev_ri_spec, ola_windows=None, ola_divisor=None):
 
-    def forward(self, z, prev_ri_spec, n_grains=None, ola_windows=None, ola_divisor=None):
-
-        audio = self.decode(z, prev_ri_spec, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
+        audio = self.decode(z, prev_ri_spec, ola_windows=ola_windows, ola_divisor=ola_divisor)
 
         return audio
     
 class RISpecVAE_v2(nn.Module):
 
     def __init__(self,
-                    n_grains,
                     l_grain=2048,                    
                     n_linears=3,
                     z_dim = 128,
@@ -409,18 +430,15 @@ class RISpecVAE_v2(nn.Module):
         super(RISpecVAE_v2, self).__init__()
 
         self.z_dim = z_dim
-        self.n_grains = n_grains
         self.l_grain = l_grain
 
         # Encoder and decoder components
         self.Encoder = RISpecEncoder_v2(
-                        n_grains = n_grains,
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
                     )
         self.Decoder = RISpecDecoder_v2(
-                        n_grains = n_grains,
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
@@ -445,14 +463,17 @@ class RISpecVAE_v2(nn.Module):
     def forward(self, x, prev_ri_spec, sampling=True):
 
         # x ---> z
+        # print("Encode")
         
         z, mu, log_variance = self.Encoder(x);
-
+        # print("Decode")
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
             x_hat = self.Decoder(z, prev_ri_spec)
         else:
             x_hat = self.Decoder(mu, prev_ri_spec)
+        # print(" - x_hat: ", x_hat.sum().item())
+
 
         return x_hat, z, mu, log_variance

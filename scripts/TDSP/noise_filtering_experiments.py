@@ -52,7 +52,7 @@ for batch, labels in test_dataloader:
     transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
     y_inv = transform(torch.abs(stft_audio))
     # y_inv = transform(torch.abs(torch.from_numpy(stft_audio)))
-    torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_stftGriffLim.wav',y_inv.unsqueeze(0).cpu(), SAMPLE_RATE)
+    # torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_stftGriffLim.wav',y_inv.unsqueeze(0).cpu(), SAMPLE_RATE)
    
    
     # y_log_audio = librosa.power_to_db(stft_audio)
@@ -61,12 +61,15 @@ for batch, labels in test_dataloader:
     
     # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
     cepstral_coeff = dct.dct(y_log_audio.permute(1,0))
-    cepstral_coeff[:,NUM_CC:] = 0
+    # cepstral_coeff[:,NUM_CC:] = 0
     inv_cepstral_coeff_librosa = 10**(dct.idct(cepstral_coeff) / 20)
-    # plt.figure()
+    y_inv_cc = transform(inv_cepstral_coeff_librosa.permute(1,0))
+    torchaudio.save(f'/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/griffinLimAudio/reconstructed_invCCGriffLim.wav',y_inv_cc.unsqueeze(0).cpu(), SAMPLE_RATE)
+    plt.figure()
     # librosa.display.specshow(inv_cepstral_coeff_librosa.permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
-    # plt.colorbar()
-    # plt.savefig("test.png")
+    librosa.display.specshow(torch.abs(stft_audio).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+    plt.colorbar()
+    plt.savefig("test.png")
     # plt.plot(inv_cepstral_coeff_librosa[9])
 
 
