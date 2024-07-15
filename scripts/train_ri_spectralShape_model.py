@@ -35,7 +35,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="fadScoring",
+        project="riSpecModelTesting",
         # name= f"run_{datetime.now()}",
         name= f"run_{datetime.now()}",
     
