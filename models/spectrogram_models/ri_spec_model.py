@@ -408,8 +408,8 @@ class RISpecDecoder_v2(nn.Module):
 
         # What does this do??
         # h = mod_sigmoid(h)
-        # h = 2.0 * self.Act2(h) - 1.0
-        h = (2.0 * self.Act2(h) - 1.0) * (1.0 - 1e-7)
+        h = 2.0 * self.Act2(h) - 1.0
+        # h = (2.0 * self.Act2(h) - 1.0) * (1.0 - 1e-7)
 
         return h
 

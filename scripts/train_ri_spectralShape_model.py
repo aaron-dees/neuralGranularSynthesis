@@ -247,7 +247,7 @@ if __name__ == "__main__":
                 # ---------- Run Model END ----------
 
                 # decompress x_hat
-                x_hat = (torch.logit((1.0+x_hat) * 0.5)) / COMPRESSION_FACTOR
+                x_hat = (torch.logit((1.0+x_hat) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR
                 # print("train Post: ", x_hat.sum())
 
                 recon_real = x_hat[:, :, :l_grain//2+1]
@@ -385,7 +385,7 @@ if __name__ == "__main__":
                     # ---------- Run Model END ----------
 
                     # decompress x_hat
-                    x_hat = (torch.logit((1.0+x_hat) * 0.5)) / COMPRESSION_FACTOR
+                    x_hat = (torch.logit((1.0+x_hat) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR
                     # print("val Post: ", x_hat.sum())
 
                     recon_real = x_hat[:, :, :l_grain//2+1]
@@ -546,7 +546,7 @@ if __name__ == "__main__":
                         # ---------- Run Model END ----------
 
                         # decompress x_hat
-                        x_hat = (torch.logit((1.0+x_hat) * 0.5)) / COMPRESSION_FACTOR
+                        x_hat = (torch.logit((1.0+x_hat) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR
 
                         recon_real = x_hat[:, :, :l_grain//2+1]
                         recon_imag = x_hat[:, :, l_grain//2+1:]
@@ -686,7 +686,7 @@ if __name__ == "__main__":
             # ---------- Run Model END ----------
 
             # decompress x_hat
-            x_hat = (torch.logit((1.0+x_hat) * 0.5)) / COMPRESSION_FACTOR
+            x_hat = (torch.logit((1.0+x_hat) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR
 
             recon_real = x_hat[:, :, :l_grain//2+1]
             recon_imag = x_hat[:, :, l_grain//2+1:]
