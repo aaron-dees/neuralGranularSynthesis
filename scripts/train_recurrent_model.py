@@ -53,7 +53,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="recurrentModelRuns",
+        project=WANDB_PROJECT,
         name= f"{WANDB_NAME}_{datetime.now()}",
     
         # track hyperparameters and run metadata
@@ -107,13 +107,14 @@ if __name__ == "__main__":
     # print(test_latents.shape)
 
     # train_latents = train_latents[:128, :, :]
-    plot_latents(test_latents, test_labels,["wind"], "./images/")
 
 
     # lookback = 150
     X_train, y_train = create_dataset(train_latents, lookback=LOOKBACK)
     val_X_train, val_y_train = create_dataset(val_latents, lookback=LOOKBACK)
     X_test, y_test = create_dataset(test_latents, lookback=LOOKBACK)
+    print(X_train.shape)
+    print(train_latents.shape)
 
     X_train = X_train.reshape(-1, X_train.shape[2], X_train.shape[3])
     y_train = y_train.reshape(-1, y_train.shape[2], y_train.shape[3])
@@ -122,16 +123,17 @@ if __name__ == "__main__":
     X_test = X_test.reshape(-1, X_test.shape[2], X_test.shape[3])
     y_test = y_test.reshape(-1, y_test.shape[2], y_test.shape[3])
 
-    l_model = RNN_v1(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
-    # l_model = RNN_v2(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
+    # l_model = RNN_v1(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
+    l_model = RNN_v2(LATENT_SIZE, HIDDEN_SIZE, LATENT_SIZE, NO_RNN_LAYERS)
 
     optimizer = torch.optim.Adam(l_model.parameters(), lr=LEARNING_RATE)
-    # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=4000)
+    # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.25, total_iters=3*EPOCHS/4)
+
     loss_fn = nn.MSELoss()
     # Note the batch size here 
     loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), shuffle=True, batch_size=BATCH_SIZE)
     val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(val_X_train, val_y_train), shuffle=True, batch_size=BATCH_SIZE)
-
+    
     if TRAIN:
 
         if LOAD_LATENT_CHECKPOINT:
@@ -151,11 +153,11 @@ if __name__ == "__main__":
 
         for epoch in range(EPOCHS):
             l_model.train()
-            running_rmse = 0.0
+            running_rmse = 0.0;
             for X_batch, y_batch in loader:
                 y_pred = l_model(X_batch)
                 loss = loss_fn(y_pred, y_batch)
-                running_rmse += np.sqrt(loss.detach().numpy())
+                running_rmse += (loss.detach().numpy())
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -170,11 +172,12 @@ if __name__ == "__main__":
             with torch.no_grad():
                 for val_X_batch, val_y_batch in val_loader:
                     y_pred = l_model(val_X_train)
-                    running_val_rmse += np.sqrt(loss_fn(y_pred, val_y_train))
+                    running_val_rmse += (loss_fn(y_pred, val_y_train))
 
             # Run the test case - NOTE, this should be only over newly generated samples
             with torch.no_grad():
                 y_pred = l_model(X_test)
+                test_rmse = (loss_fn(y_pred, y_test))
 
             # Take the first sequence that is fed to the model
             recon_latent = X_test[0,:,:]
@@ -195,6 +198,18 @@ if __name__ == "__main__":
             # wandb logging
             if WANDB:
                 wandb.log({"train_RMSE": train_rmse, "val_RMSE": val_rmse, "test_RMSE": sampled_seq_loss})
+
+            # Early stopping Criteria
+            if sampled_seq_loss < 0.0001 and EARLY_STOPPING:
+                print("Stopped Early as test RMSE %.4f < 0.0001" % (sampled_seq_loss))
+                torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': l_model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': train_rmse,
+                        }, f"{SAVE_MODEL_DIR}/latent_vae_latest_earlyStop.pt")
+                break
+
 
             if SAVE_CHECKPOINT:
                 if (epoch) % CHECKPOINT_REGULAIRTY == 0:
@@ -237,21 +252,18 @@ if __name__ == "__main__":
         l_model.eval()
         with torch.no_grad():
             y_pred = l_model(X_test)
-            test_rmse = np.sqrt(loss_fn(y_pred, y_test))
-            # print(y_pred[0, 0:10, 0])
-            # print(y_test[0, 0:10, 0])
-            print("Test RMSE: ", test_rmse)
 
         # Take the first sequence that is fed to the model
         recon_latent = X_test[0,:,:]
         # Add the next 10 samples on
         tmp = X_test[0,:,:].unsqueeze(0)
+        print("Out hsape: ", tmp.shape)
+        print(y_pred.shape)
         for i in range(0, y_pred.shape[0]):
             tmp = l_model(tmp)
             recon_latent = torch.cat((recon_latent, tmp[0,-1,:].unsqueeze(0)), dim=0)
             # recon_latent = torch.cat((recon_latent, y_pred[i,-1,:].unsqueeze(0)), dim=0)
 
-        # Put sqrt on this?
         pred_sample_loss = loss_fn(recon_latent[LOOKBACK:, :], test_latents[0, LOOKBACK:, :])
 
 
