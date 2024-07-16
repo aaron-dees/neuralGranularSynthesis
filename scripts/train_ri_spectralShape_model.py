@@ -35,7 +35,7 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="riSpecModelTesting",
+        project="riSpectralShapeModel_fullDataset",
         # name= f"run_{datetime.now()}",
         name= f"run_{datetime.now()}",
     
@@ -44,11 +44,21 @@ if WANDB:
         "learning_rate": LEARNING_RATE,
         "architecture": "v1",
         "dataset": "Full_Seawaves_UrbanSound8k",
+        "batch_size": BATCH_SIZE,
         "epochs": EPOCHS,
+        "learning_rate": LEARNING_RATE,
         "latent size": LATENT_SIZE,
+        "target_beta": TARGET_BETA,
+        "beta_steps": BETA_STEPS,
+        "beta_warmup_start": BETA_WARMUP_START_PERC,
+        "hidden_dim": H_DIM,
         "env_dist": ENV_DIST,
-        "tar_beta": TARGET_BETA,
-        "grain_length": GRAIN_LENGTH
+        "grain_length": GRAIN_LENGTH,
+        "hop_size_ratio": HOP_SIZE_RATIO,
+        "num_ccs": NUM_CC,
+        "num_mels": NUM_MELS,
+        "sample_rate": SAMPLE_RATE,
+        "compression_factor": COMPRESSION_FACTOR
         }
     )
 
@@ -176,7 +186,7 @@ if __name__ == "__main__":
                 # x_hat, z = model(waveform)                 # forward pass: compute predicted outputs 
 
                 # ---------- Turn Waveform into grains ----------
-                ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
+                ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
                 stft_audio = torch.stft(waveform, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
 
                 # ---------- Turn Waveform into grains END ----------
@@ -323,7 +333,7 @@ if __name__ == "__main__":
                     waveform, label = data 
                     waveform = waveform.to(DEVICE)
                     
-                    ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
+                    ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
                     stft_audio = torch.stft(waveform, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
 
                     # ---------- Turn Waveform into grains END ----------
@@ -473,7 +483,7 @@ if __name__ == "__main__":
                     
 
             if SAVE_RECONSTRUCTIONS:
-                if (epoch+1) % CHECKPOINT_REGULAIRTY == 0:
+                if (epoch+1) % RECON_REGULAIRTY == 0:
 
                     # Get data using test dataset
                     with torch.no_grad():
@@ -483,7 +493,7 @@ if __name__ == "__main__":
                         waveform, labels = next(dataiter)
                         waveform = waveform.to(DEVICE)
 
-                        ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
+                        ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
                         stft_audio = torch.stft(waveform, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
 
                         # ---------- Turn Waveform into grains END ----------
@@ -617,7 +627,7 @@ if __name__ == "__main__":
 
             waveforms = waveforms.to(DEVICE)
             # ---------- Turn Waveform into grains ----------
-            ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32)
+            ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
             stft_audio = torch.stft(waveforms, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
 
             # ---------- Turn Waveform into grains END ----------

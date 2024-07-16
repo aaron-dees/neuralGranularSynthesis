@@ -295,8 +295,8 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     test_dataset = torch.utils.data.ConcatDataset(test_datasets)
     print("--- Dataset train/test sizes:\t\t",len(train_dataset),len(test_dataset))
     
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=num_workers)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=num_workers)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     print("-------- Done Creating Dataloaders --------")
 
@@ -405,8 +405,8 @@ def make_audio_dataloaders_noPadding(data_dir,classes,sr,silent_reject,amplitude
     test_dataset = torch.utils.data.ConcatDataset(test_datasets)
     print("--- Dataset train/test sizes:\t\t",len(train_dataset),len(test_dataset))
     
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=num_workers)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=num_workers)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     print("-------- Done Creating Dataloaders --------")
 
