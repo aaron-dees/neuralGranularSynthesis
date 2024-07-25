@@ -418,6 +418,7 @@ class RISpecDecoder_v2(nn.Module):
         audio = self.decode(z, prev_ri_spec, ola_windows=ola_windows, ola_divisor=ola_divisor)
 
         return audio
+
     
 class RISpecVAE_v2(nn.Module):
 
@@ -477,3 +478,82 @@ class RISpecVAE_v2(nn.Module):
 
 
         return x_hat, z, mu, log_variance
+
+# Decoder a seed RI spec (prev timestep) from a point in the latent space.
+class SeedGenerator(nn.Module):
+
+    """
+    Decoder.
+
+    Constructor arguments: 
+        use_z : (Bool), if True, Decoder will use z as input.
+        mlp_units: 512
+        mlp_layers: 3
+        z_units: 16
+        n_harmonics: 101
+        n_freq: 65
+        gru_units: 512
+        bidirectional: False
+
+    input(dict(f0, z(optional), l)) : a dict object which contains key-values below
+        f0 : fundamental frequency for each frame. torch.tensor w/ shape(B, time)
+        z : (optional) residual information. torch.tensor w/ shape(B, time, z_units)
+        loudness : torch.tensor w/ shape(B, time)
+
+        *note dimension of z is not specified in the paper.
+
+    output : a dict object which contains key-values below
+        f0 : same as input
+        c : torch.tensor w/ shape(B, time, n_harmonics) which satisfies sum(c) == 1
+        a : torch.tensor w/ shape(B, time) which satisfies a > 0
+        H : noise filter in frequency domain. torch.tensor w/ shape(B, frame_num, filter_coeff_length)
+    """
+
+    def __init__(self,
+                    z_dim,
+                    l_grain = 2048,
+                    n_linears = 3,
+                    h_dim = 512
+                    ):
+        super(SeedGenerator, self).__init__()
+
+        self.l_grain = l_grain
+        self.filter_size = (l_grain//2+1)*2
+        self.z_dim = z_dim
+        self.h_dim = h_dim
+
+        self.Linear1 = nn.Linear(self.z_dim, h_dim)
+        self.Norm1 = nn.BatchNorm1d(h_dim)
+        self.Act1 = nn.LeakyReLU(0.2)
+
+        self.Linear2 = nn.Linear(self.h_dim, self.filter_size)
+
+        self.Act2 = nn.Sigmoid()
+        # self.Act2 = nn.Hardtanh(min_val=0.0, max_val=1.0)
+
+        # Initialise weights
+        torch.nn.init.xavier_uniform_(self.Linear1.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear2.weight) 
+
+    def generateSeed(self, z, ola_windows=None, ola_folder=None, ola_divisor=None):
+
+        #z -> h
+        h = self.Linear1(z)
+        h = self.Norm1(h)
+        h = self.Act1(h)
+
+        h = self.Linear2(h)
+        # print("Decoder Linear grad: ", self.Linear2.weight.sum())
+
+        # What does this do??
+        # h = mod_sigmoid(h)
+        h = 2.0 * self.Act2(h) - 1.0
+        # h = (2.0 * self.Act2(h) - 1.0) * (1.0 - 1e-7)
+
+        return h
+
+    def forward(self, z, ola_windows=None, ola_divisor=None):
+
+        prev_ri_spec = self.generateSeed(z, ola_windows=ola_windows, ola_divisor=ola_divisor)
+
+        return prev_ri_spec

@@ -252,7 +252,8 @@ if __name__ == "__main__":
 
                 x_hat = x_hat.reshape(-1, n_grains-1, (int((l_grain//2)+1))*2)
 
-                x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+                # x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+                x_hat = torch.cat((first_grain.unsqueeze(1), x_hat), dim=1)
 
                 # ---------- Run Model END ----------
 
@@ -390,7 +391,8 @@ if __name__ == "__main__":
 
                     x_hat = x_hat.reshape(-1, n_grains-1, (int((l_grain//2)+1))*2)
 
-                    x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+                    # x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+                    x_hat = torch.cat((first_grain.unsqueeze(1), x_hat), dim=1)
 
                     # ---------- Run Model END ----------
 
@@ -551,7 +553,8 @@ if __name__ == "__main__":
                         # Reshape back to [bs, n_grains, l_grain]
                         x_hat = x_hat.reshape(-1, n_grains-1, (int((l_grain//2)+1))*2)
 
-                        x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+                        # x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+                        x_hat = torch.cat((first_grain.unsqueeze(1), x_hat), dim=1)
 
                         # ---------- Run Model END ----------
 
@@ -599,6 +602,145 @@ if __name__ == "__main__":
         # train_latents,train_labels,val_latents,val_labels = export_latents(model,train_dataloader,val_dataloader, l_grain, n_grains, hop_size, BATCH_SIZE, DEVICE)
         
         print("-------- Done Exporting Latents --------")
+
+
+    elif SEQ_TEST:
+
+        ###########
+        # Sequential test
+        # - Check the models ability to generate a sequence.
+        ########### 
+
+
+        # with torch.no_grad():
+        if LOAD_CHECKPOINT:
+            checkpoint = torch.load(CHECKPOINT_LOAD_PATH, map_location=DEVICE)
+            model.load_state_dict(checkpoint['model_state_dict'])
+
+        # Put model in eval mode
+        model.to(DEVICE)
+        model.eval()
+
+        with torch.no_grad():
+
+            # Lets get batch of test images
+            dataiter = iter(test_dataloader)
+            waveforms, labels = next(dataiter)
+
+            waveforms = waveforms.to(DEVICE)
+            # ---------- Turn Waveform into grains ----------
+            ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
+            stft_audio = torch.stft(waveforms, n_fft = l_grain, hop_length = hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
+
+            # ---------- Turn Waveform into grains END ----------
+
+            # ----------- RI Spec ---------
+            # The compression factor essentially increases the granularity of the 
+            compressionFactor = COMPRESSION_FACTOR
+            real_spec = stft_audio.real
+            imag_spec = stft_audio.imag
+            compress_real_spec = 2.0 * torch.sigmoid(compressionFactor*real_spec) - 1.0
+            compress_imag_spec = 2.0 * torch.sigmoid(compressionFactor*imag_spec) - 1.0
+
+            ri_spec = torch.cat((compress_real_spec, compress_imag_spec), dim=1)
+
+            ri_spec = ri_spec.permute(0, 2, 1)
+
+            # ---------- RI Spec END ----------
+
+            # # ---------- Get CCs, or MFCCs and invert ----------
+            # CCs
+            grain_db = 20*safe_log10(torch.abs(stft_audio))
+            # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
+            cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
+            cepstral_coeff[:,NUM_CC:] = 0
+            inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+
+            # # MFCCs  - use librosa function as they are more reliable
+            # # grain_fft = grain_fft.permute(0,2,1)
+            # # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
+            # # mfccs = dct.dct(grain_mel)
+            # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
+            # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
+            # # inv_mfccs = inv_mfccs.permute(0,2,1)
+
+            # # ---------- Get CCs, or MFCCs and invert END ----------
+
+            # --------- Extract the prev ri spec -----------
+            first_grain = ri_spec[:, 0, :]
+            #current_ri_spec = ri_spec[:, 1:, :]
+            current_ri_spec = ri_spec[:, 1:, :]
+            prev_ri_spec = ri_spec[:,:-1,:]
+            inv_cep_coeffs = inv_cep_coeffs[:, 1:, :]
+            print(current_ri_spec.shape)
+
+            # Reshape to [bs*n_grains, l_grain] 
+            inv_cep_coeffs = inv_cep_coeffs.reshape(inv_cep_coeffs.shape[0]*(n_grains-1), (int((l_grain//2)+1)))
+            prev_ri_spec = prev_ri_spec.reshape(prev_ri_spec.shape[0]*(n_grains-1), (int((l_grain//2)+1))*2)
+            current_ri_spec = current_ri_spec.reshape(current_ri_spec.shape[0]*(n_grains-1), (int((l_grain//2)+1))*2)
+
+
+            # ---------- Run Model ----------
+
+            x_hat, z, mu, log_variance = model(inv_cep_coeffs, prev_ri_spec)   
+            print("x: ", x_hat.shape)
+            # x_hat, z, mu, log_variance = model(inv_mfccs)   
+
+
+            prev_recon_ri_spec = first_grain
+            recon_ri_spec = first_grain
+            recon_ri_spec_tmp = first_grain
+            for i in range(z.shape[0]):
+                prev_recon_ri_spec = model.decode(z[i,:].unsqueeze(0), prev_recon_ri_spec)["audio"]
+                recon_ri_spec = torch.cat((recon_ri_spec, prev_recon_ri_spec), dim=0)
+                mse = calc_reconstruction_loss(current_ri_spec[i,:].unsqueeze(0), prev_recon_ri_spec)
+                tmp = model.decode(z[i,:].unsqueeze(0), prev_ri_spec[i,:].unsqueeze(0))["audio"]
+                recon_ri_spec_tmp = torch.cat((recon_ri_spec_tmp, tmp), dim=0)
+                mse_tmp = calc_reconstruction_loss(current_ri_spec[i,:].unsqueeze(0), tmp)
+                mse_full = calc_reconstruction_loss(current_ri_spec[i,:].unsqueeze(0), x_hat[i,:].unsqueeze(0))
+                # print("MSE: ", mse_tmp.item(), mse.item())
+                print('MSE {:.7f}'.format(mse),
+                '\t, {:.7f}'.format(mse_tmp),
+                '\t, {:.7f}'.format(mse_full))
+
+            # Reshape back to [bs, n_grains, l_grain]
+            x_hat = recon_ri_spec.reshape(-1, n_grains, (int((l_grain//2)+1))*2)
+            # x_hat = recon_ri_spec_tmp.reshape(-1, n_grains, (int((l_grain//2)+1))*2)
+
+            # ---------- Run Model END ----------
+
+            # decompress x_hat
+            x_hat = (torch.logit((1.0+x_hat) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR
+
+            recon_real = x_hat[:, :, :l_grain//2+1]
+            recon_imag = x_hat[:, :, l_grain//2+1:]
+            recon_complex = torch.complex(recon_real, recon_imag)
+            recon_audio = torch.istft(recon_complex.permute(0, 2, 1), n_fft=l_grain, hop_length=hop_size, window=ola_window)
+
+            spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
+            spec_loss = spec_dist(recon_audio, waveforms)
+
+            print(x_hat.shape)
+            print(waveforms.shape)
+
+            print("Spectral Loss: ", spec_loss)
+
+            if SAVE_RECONSTRUCTIONS:
+                for i, signal in enumerate(recon_audio):
+                    # torchaudio.save(f"./audio_tests/usd_vae_{classes[labels[i]]}_{i}.wav", signal, SAMPLE_RATE)
+                    spec_loss = spec_dist(recon_audio[i], waveforms[i])
+                    # Check the energy differences
+                    # print("Saving ", labels[i][:-4])
+                    print("Saving ", i)
+                    print("Loss: ", spec_loss)
+                    # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
+                    # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/real_audio/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
+                    # print(f'{classes[labels[i]]} saved')
+
+                    fad_score = frechet.score(f'{RECONSTRUCTION_SAVE_DIR}/real_audio', f'{RECONSTRUCTION_SAVE_DIR}/fake_audio', dtype="float32")
+                    print("FAD Score: ", fad_score)
 
 
     else:
@@ -691,7 +833,8 @@ if __name__ == "__main__":
             # Reshape back to [bs, n_grains, l_grain]
             x_hat = x_hat.reshape(-1, n_grains-1, (int((l_grain//2)+1))*2)
 
-            x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+            # x_hat = torch.cat((x_hat, first_grain.unsqueeze(1)), dim=1)
+            x_hat = torch.cat((first_grain.unsqueeze(1), x_hat), dim=1)
 
             # ---------- Run Model END ----------
 
@@ -727,7 +870,8 @@ if __name__ == "__main__":
                     print("Loss: ", spec_loss)
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/recon_{labels[i][:-4]}_{spec_loss}.wav", signal, SAMPLE_RATE)
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
-                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
                     torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/real_audio/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
                     # print(f'{classes[labels[i]]} saved')
 
