@@ -479,6 +479,253 @@ class RISpecVAE_v2(nn.Module):
 
         return x_hat, z, mu, log_variance
 
+# v2 take prev ri spec grain and the spectral shape
+# multiple dense layers
+class RISpecEncoder_v3(nn.Module):
+
+    def __init__(self,
+                    z_dim = 128,
+                    l_grain=2048,
+                    h_dim = [2048, 1024, 512]
+                    ):
+        super(RISpecEncoder_v3, self).__init__()
+
+
+        self.l_grain = l_grain
+        self.h_dim = h_dim
+        self.z_dim = z_dim
+
+        self.filter_size = (int((l_grain//2)+1))
+        
+        self.Linear1 = nn.Linear(self.filter_size, h_dim[0])
+        self.Norm1 = nn.BatchNorm1d(h_dim[0])
+        self.Act1 = nn.LeakyReLU(0.2)
+
+        self.Linear2 = nn.Linear(h_dim[0], h_dim[1])
+        self.Norm2 = nn.BatchNorm1d(h_dim[1])
+        self.Act2 = nn.LeakyReLU(0.2)
+
+        self.Linear3 = nn.Linear(h_dim[1], h_dim[2])
+        self.Norm3 = nn.BatchNorm1d(h_dim[2])
+        self.Act3 = nn.LeakyReLU(0.2)
+
+        self.LinearMu = nn.Linear(h_dim[2],z_dim)
+        self.LinearLogvar = nn.Linear(h_dim[2],z_dim)
+        self.ActLogvar = nn.Hardtanh(min_val=-5.0, max_val=5.0)
+
+        # Initialise weights
+        torch.nn.init.xavier_uniform_(self.Linear1.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear2.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear3.weight) 
+        torch.nn.init.xavier_uniform_(self.LinearMu.weight) 
+        torch.nn.init.xavier_uniform_(self.LinearLogvar.weight) 
+
+
+    def encode(self, x):
+
+        # The reshape is important for the KL Loss and trating each grains as a batch value,
+        # This reshap can be performed here or simply before the KL loss calculation.
+        # moving out so n_grains is not required. 
+        # mb_grains = x.reshape(x.shape[0]*self.n_grains,self.filter_size)
+
+        # print(" - In: ", x.sum().item())
+
+        # Linear layer 1 x -> h
+        h = self.Linear1(x)
+        h = self.Norm1(h)
+        h = self.Act1(h)
+
+        # Linear layer 2 x -> h
+        h = self.Linear2(h)
+        h = self.Norm2(h)
+        h = self.Act2(h)
+
+        # Linear layer 3 x -> h
+        h = self.Linear3(h)
+        h = self.Norm3(h)
+        h = self.Act3(h)
+
+        # h --> z
+        # h of shape [bs*n_grains,z_dim]
+        mu = self.LinearMu(h)
+        logvar = self.LinearLogvar(h)
+        logvar = self.ActLogvar(logvar)
+
+        # z of shape [bs*n_grains,z_dim]
+        z = sample_from_distribution(mu, logvar)
+
+        return z, mu, logvar
+
+    def forward(self, audio):
+
+        z, mu, logvar = self.encode(audio)
+        # z = self.encode(audio)
+
+        return z, mu, logvar
+        # return z
+
+# Waveform decoder consists simply of dense layers.
+class RISpecDecoder_v3(nn.Module):
+
+    """
+    Decoder.
+
+    Constructor arguments: 
+        use_z : (Bool), if True, Decoder will use z as input.
+        mlp_units: 512
+        mlp_layers: 3
+        z_units: 16
+        n_harmonics: 101
+        n_freq: 65
+        gru_units: 512
+        bidirectional: False
+
+    input(dict(f0, z(optional), l)) : a dict object which contains key-values below
+        f0 : fundamental frequency for each frame. torch.tensor w/ shape(B, time)
+        z : (optional) residual information. torch.tensor w/ shape(B, time, z_units)
+        loudness : torch.tensor w/ shape(B, time)
+
+        *note dimension of z is not specified in the paper.
+
+    output : a dict object which contains key-values below
+        f0 : same as input
+        c : torch.tensor w/ shape(B, time, n_harmonics) which satisfies sum(c) == 1
+        a : torch.tensor w/ shape(B, time) which satisfies a > 0
+        H : noise filter in frequency domain. torch.tensor w/ shape(B, frame_num, filter_coeff_length)
+    """
+
+    def __init__(self,
+                    z_dim,
+                    l_grain = 2048,
+                    n_linears = 3,
+                    h_dim = [2048, 1024, 512]
+                    ):
+        super(RISpecDecoder_v3, self).__init__()
+
+        self.l_grain = l_grain
+        self.filter_size = (l_grain//2+1)*2
+        self.z_dim = z_dim
+        self.h_dim = h_dim
+
+        self.Linear1 = nn.Linear(self.z_dim+self.filter_size, h_dim[2])
+        self.Norm1 = nn.BatchNorm1d(h_dim[2])
+        self.Act1 = nn.LeakyReLU(0.2)
+
+        self.Linear2 = nn.Linear(h_dim[2], h_dim[1])
+        self.Norm2 = nn.BatchNorm1d(h_dim[1])
+        self.Act2 = nn.LeakyReLU(0.2)
+
+        self.Linear3 = nn.Linear(h_dim[1], h_dim[0])
+        self.Norm3 = nn.BatchNorm1d(h_dim[0])
+        self.Act3 = nn.LeakyReLU(0.2)
+
+        self.Linear4 = nn.Linear(self.h_dim[0], self.filter_size)
+
+        self.Act4 = nn.Sigmoid()
+        # self.Act2 = nn.Hardtanh(min_val=0.0, max_val=1.0)
+
+        # Initialise weights
+        torch.nn.init.xavier_uniform_(self.Linear1.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear2.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear3.weight) 
+        torch.nn.init.xavier_uniform_(self.Linear4.weight) 
+
+    def decode(self, z, prev_ri_spec, ola_windows=None, ola_folder=None, ola_divisor=None):
+
+        # Concatonate the prev ri spec and latent point
+        z = torch.cat((z, prev_ri_spec), dim=1)
+
+        #z -> h
+        h = self.Linear1(z)
+        h = self.Norm1(h)
+        h = self.Act1(h)
+
+        #h -> h
+        h = self.Linear2(h)
+        h = self.Norm2(h)
+        h = self.Act2(h)
+
+        #h -> h
+        h = self.Linear3(h)
+        h = self.Norm3(h)
+        h = self.Act3(h)
+
+        h = self.Linear4(h)
+        # print("Decoder Linear grad: ", self.Linear2.weight.sum())
+
+        # What does this do??
+        # h = mod_sigmoid(h)
+        h = 2.0 * self.Act4(h) - 1.0
+        # h = (2.0 * self.Act2(h) - 1.0) * (1.0 - 1e-7)
+
+        return h
+
+    def forward(self, z, prev_ri_spec, ola_windows=None, ola_divisor=None):
+
+        audio = self.decode(z, prev_ri_spec, ola_windows=ola_windows, ola_divisor=ola_divisor)
+
+        return audio
+
+    
+class RISpecVAE_v3(nn.Module):
+
+    def __init__(self,
+                    l_grain=2048,                    
+                    n_linears=3,
+                    z_dim = 128,
+                    h_dim=[2048, 1024, 512],
+                    ):
+        super(RISpecVAE_v3, self).__init__()
+
+        self.z_dim = z_dim
+        self.l_grain = l_grain
+
+        # Encoder and decoder components
+        self.Encoder = RISpecEncoder_v3(
+                        l_grain = l_grain,
+                        z_dim = z_dim,
+                        h_dim = h_dim,
+                    )
+        self.Decoder = RISpecDecoder_v3(
+                        l_grain = l_grain,
+                        z_dim = z_dim,
+                        h_dim = h_dim,
+                        n_linears = n_linears,
+
+                    )
+
+        # Number of convolutional layers
+    def encode(self, x):
+
+        # x ---> z
+        z, mu, log_variance = self.Encoder(x);
+    
+        return {"z":z, "mu":mu, "logvar":log_variance} 
+
+    def decode(self, z, prev_ri_spec):
+
+        x_hat = self.Decoder(z, prev_ri_spec)
+            
+        return {"audio":x_hat}
+
+    def forward(self, x, prev_ri_spec, sampling=True):
+
+        # x ---> z
+        # print("Encode")
+        
+        z, mu, log_variance = self.Encoder(x);
+        # print("Decode")
+        # z ---> x_hat
+        # Note in paper they also have option passing mu into the decoder and not z
+        if sampling:
+            x_hat = self.Decoder(z, prev_ri_spec)
+        else:
+            x_hat = self.Decoder(mu, prev_ri_spec)
+        # print(" - x_hat: ", x_hat.sum().item())
+
+
+        return x_hat, z, mu, log_variance
+
 # Decoder a seed RI spec (prev timestep) from a point in the latent space.
 class SeedGenerator(nn.Module):
 
