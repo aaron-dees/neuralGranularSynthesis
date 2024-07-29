@@ -76,7 +76,7 @@ frechet = FrechetAudioDistance(
 if __name__ == "__main__":
 
     # Don't apply center padding here since we are using torch STFT function, but update the n_grains
-    train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders_noPadding(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
+    train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders_noPadding(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
     # Update the number of grains to account for centre padding
     if (HOP_SIZE_RATIO*100 == 25) :
         n_grains = 4*((tar_l+l_grain)//l_grain)-3
@@ -87,12 +87,12 @@ if __name__ == "__main__":
     # Test dataloader
     # test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     # test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
-    test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders_noPadding(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0.2,0.2],amplitude_norm=False,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
+    test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders_noPadding(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=False,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
     # model = RISpecVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
     # Note that I drop the n_grains by one here to deal with allowance for using the prev ri spec
-    # model = RISpecVAE_v2(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
-    model = RISpecVAE_v3(l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
+    model = RISpecVAE_v2(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE)
+    # model = RISpecVAE_v3(l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
     # model = SpectralVAE_v2(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE)
     # model = SpectralVAE_v3(n_grains=n_grains, l_grain=l_grain, h_dim=[2048, 1024, 512], z_dim=LATENT_SIZE, channels = 32, kernel_size = 3, stride = 2)
     
@@ -168,6 +168,9 @@ if __name__ == "__main__":
             running_env_loss = 0.0
 
             for data in train_dataloader:
+
+                if PROFILE:
+                    start1 = time.time()
 
                 # set the beta for weighting the KL Divergence
                 # note beta will only start on multiple of step size
@@ -251,12 +254,21 @@ if __name__ == "__main__":
                     std = 0.01
                     mean = 0
                     prev_ri_spec += torch.randn(prev_ri_spec.size()) * std + mean
+
+                if PROFILE:
+                    end1 = time.time()
+                    start2 = time.time()
                 
                 # ---------- Run Model ----------
+
 
                 # x_hat, z, mu, log_variance = model(grain_db.permute(0,2,1))   
                 x_hat, z, mu, log_variance = model(inv_cep_coeffs, prev_ri_spec)   
                 # x_hat, z, mu, log_variance = model(inv_mfccs)   
+
+                if PROFILE:
+                    end2 = time.time()
+                    start3 = time.time()
 
                 x_hat = x_hat.reshape(-1, n_grains-1, (int((l_grain//2)+1))*2)
 
@@ -273,6 +285,10 @@ if __name__ == "__main__":
                 recon_imag = x_hat[:, :, l_grain//2+1:]
                 recon_complex = torch.complex(recon_real, recon_imag)
                 recon_audio = torch.istft(recon_complex.permute(0, 2, 1), n_fft=l_grain, hop_length=hop_size, window=ola_window)
+
+                if PROFILE:
+                    end3 = time.time()
+                    start4 = time.time()
 
                 # transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
                 # recon_audio = transform(x_hat.permute(0,2,1))
@@ -296,12 +312,17 @@ if __name__ == "__main__":
 
                 loss = kld_loss + spec_loss + env_loss
                 # loss = spec_loss
+                if PROFILE:
+                    end4 = time.time()
+                    start5 = time.time()
 
                 # Compute gradients and update weights
                 loss.backward()                         # backward pass
                 # Try clipping gradients to help with vanishing gradients
                 # nn.utils.clip_grad_norm_(model.parameters(), 100)
                 optimizer.step()                        # perform optimization step
+                if PROFILE:
+                    end5 = time.time()
 
                 # Accumulate loss for reporting
                 running_train_loss += loss
@@ -336,6 +357,16 @@ if __name__ == "__main__":
             running_spec_val_loss = 0.0
             running_env_val_loss = 0.0
             running_multi_spec_loss = 0.0
+
+
+            if PROFILE:
+                print("PROFILE")
+                print("\t Data Pre-processing: ", end1-start1)
+                print("\t Model Run: ", end2-start2)
+                print("\t Data Post-procesing: ", end3-start3)
+                print("\t Loss: ", end4-start4)
+                print("\t Optimisation: ", end5-start5)
+                print("PROFILE END")
 
             with torch.no_grad():
                 for data in val_dataloader:
