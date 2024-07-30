@@ -306,7 +306,7 @@ def make_audio_dataloaders(data_dir,classes,sr,silent_reject,amplitude_norm,batc
     
     return train_dataloader,test_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes
 
-def make_audio_dataloaders_noPadding(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50,num_workers=2):
+def make_audio_dataloaders_noPadding(data_dir,classes,sr,silent_reject,amplitude_norm,batch_size,hop_ratio=0.25,tar_l=1.1,l_grain=2048,high_pass_freq=50, train_split=0.8,num_workers=2):
 
     print("-------- Creating Dataloaders --------")
     
@@ -395,7 +395,7 @@ def make_audio_dataloaders_noPadding(data_dir,classes,sr,silent_reject,amplitude
         print("--- Dataset size:\t\t\t", audios.shape)
 
         n_samples = len(labels)
-        n_train = int(n_samples*0.85)
+        n_train = int(n_samples*train_split)
         dataset = torch.utils.data.TensorDataset(audios,labels)
         train_dataset,test_dataset = torch.utils.data.random_split(dataset, [n_train, n_samples-n_train])
         train_datasets.append(train_dataset)
