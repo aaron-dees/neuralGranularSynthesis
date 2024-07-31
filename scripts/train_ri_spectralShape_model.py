@@ -223,7 +223,7 @@ if __name__ == "__main__":
                 grain_db = 20*safe_log10(torch.abs(stft_audio))
                 # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
                 cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
-                cepstral_coeff[:,NUM_CC:] = 0
+                cepstral_coeff[:,:,NUM_CC:] = 0
                 inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
                 # # MFCCs  - use librosa function as they are more reliable
@@ -398,7 +398,7 @@ if __name__ == "__main__":
                     grain_db = 20*safe_log10(torch.abs(stft_audio))
                     # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
                     cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
-                    cepstral_coeff[:,NUM_CC:] = 0
+                    cepstral_coeff[:,:,NUM_CC:] = 0
                     inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
                     # # MFCCs  - use librosa function as they are more reliable
@@ -559,7 +559,7 @@ if __name__ == "__main__":
                         grain_db = 20*safe_log10(torch.abs(stft_audio))
                         # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
                         cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
-                        cepstral_coeff[:,NUM_CC:] = 0
+                        cepstral_coeff[:,:,NUM_CC:] = 0
                         inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
                         # # MFCCs  - use librosa function as they are more reliable
@@ -649,6 +649,8 @@ if __name__ == "__main__":
         # Sequential test
         # - Check the models ability to generate a sequence.
         ########### 
+        seed = 0
+        torch.manual_seed(seed)
 
 
         # with torch.no_grad():
@@ -692,7 +694,7 @@ if __name__ == "__main__":
             grain_db = 20*safe_log10(torch.abs(stft_audio))
             # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
             cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
-            cepstral_coeff[:,NUM_CC:] = 0
+            cepstral_coeff[:,:,NUM_CC:] = 0
             inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
             # # MFCCs  - use librosa function as they are more reliable
@@ -720,27 +722,57 @@ if __name__ == "__main__":
 
 
             # ---------- Run Model ----------
+            # std = 0.00001
+            # mean = 0
+            # prev_ri_spec_noise = prev_ri_spec + torch.randn(prev_ri_spec.size()) * std + mean
 
             x_hat, z, mu, log_variance = model(inv_cep_coeffs, prev_ri_spec)   
             print("x: ", x_hat.shape)
             # x_hat, z, mu, log_variance = model(inv_mfccs)   
+            # mse_test = calc_reconstruction_loss(current_ri_spec, x_hat)
+
+
+            # print("Biggest Flux: ", torch.max(torch.abs(x_hat[2:245] - current_ri_spec[2:245])))
 
 
             prev_recon_ri_spec = first_grain
+            # prev_recon_ri_spec = prev_ri_spec[20,:].unsqueeze(0)
             recon_ri_spec = first_grain
             recon_ri_spec_tmp = first_grain
             for i in range(z.shape[0]):
+            # for i in range(1,10):
+            # for i in range(20,21):
                 prev_recon_ri_spec = model.decode(z[i,:].unsqueeze(0), prev_recon_ri_spec)["audio"]
                 recon_ri_spec = torch.cat((recon_ri_spec, prev_recon_ri_spec), dim=0)
                 mse = calc_reconstruction_loss(current_ri_spec[i,:].unsqueeze(0), prev_recon_ri_spec)
+
+                # std = 0.01
+                # std = 0.001
+                # mean = 0
+                # prev_ri_spec_noise = prev_ri_spec + torch.randn(prev_ri_spec.size()) * std + mean
+
                 tmp = model.decode(z[i,:].unsqueeze(0), prev_ri_spec[i,:].unsqueeze(0))["audio"]
+                # print("Predicted")
+                # print(tmp.sum())
+                # print(((torch.logit((1.0+tmp) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR).sum())
+                # plt.plot(((torch.logit((1.0+tmp[0]) * 0.5, eps=1e-7)) / COMPRESSION_FACTOR))
+                # plt.plot(tmp[0])
+                # plt.savefig("test.png")
                 recon_ri_spec_tmp = torch.cat((recon_ri_spec_tmp, tmp), dim=0)
+                # print("Actual")
+                # print(current_ri_spec[i,:].sum())
+                # print(real_spec[0,i+1,:].sum()+imag_spec[0,i+1,:].sum())
+                # plt.plot(torch.cat((real_spec[0,i+1,:], imag_spec[0,i+1,:])))
+                # print("Biggest Flux: ", torch.max(torch.abs(tmp - current_ri_spec[i,:])))
+                # plt.plot(current_ri_spec[i,:])
+                # plt.savefig("test.png")
                 mse_tmp = calc_reconstruction_loss(current_ri_spec[i,:].unsqueeze(0), tmp)
                 mse_full = calc_reconstruction_loss(current_ri_spec[i,:].unsqueeze(0), x_hat[i,:].unsqueeze(0))
                 # print("MSE: ", mse_tmp.item(), mse.item())
                 print('MSE {:.7f}'.format(mse),
                 '\t, {:.7f}'.format(mse_tmp),
                 '\t, {:.7f}'.format(mse_full))
+            # print(img)
 
             # Reshape back to [bs, n_grains, l_grain]
             x_hat = recon_ri_spec.reshape(-1, n_grains, (int((l_grain//2)+1))*2)
@@ -790,6 +822,9 @@ if __name__ == "__main__":
         # Inference
         ########### 
 
+        seed = 0
+        torch.manual_seed(seed)
+
 
         # with torch.no_grad():
         if LOAD_CHECKPOINT:
@@ -827,10 +862,10 @@ if __name__ == "__main__":
 
             # print("RI spec shape: ", ri_spec.shape)
 
-            plt.figure()
-            librosa.display.specshow(real_spec[0].cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
-            plt.colorbar()
-            plt.savefig("test.png")
+            # plt.figure()
+            # librosa.display.specshow(real_spec[0].cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+            # plt.colorbar()
+            # plt.savefig("test.png")
 
             # ---------- RI Spec END ----------
 
@@ -839,8 +874,9 @@ if __name__ == "__main__":
             grain_db = 20*safe_log10(torch.abs(stft_audio))
             # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
             cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
-            cepstral_coeff[:,NUM_CC:] = 0
+            cepstral_coeff[:,:,NUM_CC:] = 0
             inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+            inv_cep_coeffs_test = inv_cep_coeffs
 
             # # MFCCs  - use librosa function as they are more reliable
             # # grain_fft = grain_fft.permute(0,2,1)
@@ -869,6 +905,8 @@ if __name__ == "__main__":
             x_hat, z, mu, log_variance = model(inv_cep_coeffs, prev_ri_spec)   
             # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
+            print("Sum test: ", x_hat.sum())
+
             # Reshape back to [bs, n_grains, l_grain]
             x_hat = x_hat.reshape(-1, n_grains-1, (int((l_grain//2)+1))*2)
 
@@ -885,10 +923,35 @@ if __name__ == "__main__":
             recon_complex = torch.complex(recon_real, recon_imag)
             recon_audio = torch.istft(recon_complex.permute(0, 2, 1), n_fft=l_grain, hop_length=hop_size, window=ola_window)
 
+            print("Window testing")
+            inv_complex = torch.fft.irfft(recon_complex)
+            inv_stft = torch.fft.irfft(stft_audio.permute(0,2,1))
+            # print(inv_stft.shape)
+            # print(inv_complex.shape)
+            # plt.plot(inv_complex[0,20,:])
+            # plt.plot(inv_stft[0,20,:])
+            # plt.savefig("test.png")
+
+            grain_db_recon = 20*safe_log10(torch.abs(recon_complex))
+            # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
+            cepstral_coeff_recon = dct.dct(grain_db_recon)
+            cepstral_coeff_recon[:,:,NUM_CC:] = 0
+            inv_cep_coeffs_recon = 10**(dct.idct(cepstral_coeff_recon) / 20)
+            print("2: ", inv_cep_coeffs_recon.shape)
+
+
+            # plot Spectral shape
+            # plt.plot(inv_cep_coeffs_test[0,20,:])
+            # plt.plot(inv_cep_coeffs_recon[0,20,:])
+            # plt.savefig("test.png")
+
+
+            # print(inv_cep_coeffs_recon[0,120,:])
             # plt.figure()
-            # librosa.display.specshow(recon_real.permute(0,2,1)[0].cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
+            # librosa.display.specshow(inv_cep_coeffs_recon[0].permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
             # plt.colorbar()
             # plt.savefig("test.png")
+
 
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
