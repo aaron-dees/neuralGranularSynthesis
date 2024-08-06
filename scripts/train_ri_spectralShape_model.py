@@ -901,8 +901,12 @@ if __name__ == "__main__":
 
 
             # ---------- Run Model ----------
+            # std = 0.001
+            # mean = 0
+            # prev_ri_spec_noise = prev_ri_spec + torch.randn(prev_ri_spec.size()) * std + mean
 
             x_hat, z, mu, log_variance = model(inv_cep_coeffs, prev_ri_spec)   
+            # x_hat, z, mu, log_variance = model(inv_cep_coeffs, prev_ri_spec_noise)   
             # x_hat, z, mu, log_variance = model(inv_mfccs)   
 
             print("Sum test: ", x_hat.sum())
@@ -928,9 +932,9 @@ if __name__ == "__main__":
             inv_stft = torch.fft.irfft(stft_audio.permute(0,2,1))
             # print(inv_stft.shape)
             # print(inv_complex.shape)
-            # plt.plot(inv_complex[0,20,:])
-            # plt.plot(inv_stft[0,20,:])
-            # plt.savefig("test.png")
+            plt.plot(inv_complex[0,40,:])
+            plt.plot(inv_stft[0,40,:])
+            plt.savefig("test.png")
 
             grain_db_recon = 20*safe_log10(torch.abs(recon_complex))
             # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
@@ -941,8 +945,8 @@ if __name__ == "__main__":
 
 
             # plot Spectral shape
-            # plt.plot(inv_cep_coeffs_test[0,20,:])
-            # plt.plot(inv_cep_coeffs_recon[0,20,:])
+            # plt.plot(inv_cep_coeffs_recon[0,40,:])
+            # plt.plot(inv_cep_coeffs_test[0,40,:])
             # plt.savefig("test.png")
 
 
@@ -951,7 +955,6 @@ if __name__ == "__main__":
             # librosa.display.specshow(inv_cep_coeffs_recon[0].permute(1,0).cpu().numpy(), n_fft=l_grain, hop_length=hop_size, sr=SAMPLE_RATE, x_axis='time', y_axis='log')
             # plt.colorbar()
             # plt.savefig("test.png")
-
 
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
