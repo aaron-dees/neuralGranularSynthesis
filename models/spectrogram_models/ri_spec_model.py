@@ -86,7 +86,7 @@ class linear_block(nn.Module):
 # Models
 # Using 3 version based on work in latent timbre synthesis.
 #############
-    
+
 #############
 # v1
 #   - single dense layer
@@ -95,7 +95,6 @@ class linear_block(nn.Module):
 class RISpecEncoder_v1(nn.Module):
 
     def __init__(self,
-                    n_grains,
                     z_dim = 128,
                     l_grain=2048,
                     h_dim = 512
@@ -103,7 +102,6 @@ class RISpecEncoder_v1(nn.Module):
         super(RISpecEncoder_v1, self).__init__()
 
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         self.h_dim = h_dim
         self.z_dim = z_dim
@@ -118,10 +116,10 @@ class RISpecEncoder_v1(nn.Module):
 
         # The reshape is important for the KL Loss and trating each grains as a batch value,
         # This reshap can be performed here or simply before the KL loss calculation.
-        mb_grains = x.reshape(x.shape[0]*self.n_grains,self.filter_size)
+        # mb_grains = x.reshape(x.shape[0]*self.n_grains,self.filter_size)
 
         # Linear layer
-        h = self.encoder_linears(mb_grains)
+        h = self.encoder_linears(x)
 
         # h --> z
         # h of shape [bs*n_grains,z_dim]
@@ -172,7 +170,6 @@ class RISpecDecoder_v1(nn.Module):
     """
 
     def __init__(self,
-                    n_grains,
                     z_dim,
                     l_grain = 2048,
                     n_linears = 3,
@@ -180,7 +177,6 @@ class RISpecDecoder_v1(nn.Module):
                     ):
         super(RISpecDecoder_v1, self).__init__()
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         self.filter_size = (l_grain//2+1)*2
         self.z_dim = z_dim
@@ -202,7 +198,7 @@ class RISpecDecoder_v1(nn.Module):
         filter_coeffs = 2.0 * self.sig(filter_coeffs) - 1.0
 
         # Reshape back into the batch and grains
-        filter_coeffs = filter_coeffs.reshape(-1, self.n_grains, self.filter_size)
+        # filter_coeffs = filter_coeffs.reshape(-1, self.n_grains, self.filter_size)
 
         return filter_coeffs
 
@@ -215,7 +211,6 @@ class RISpecDecoder_v1(nn.Module):
 class RISpecVAE_v1(nn.Module):
 
     def __init__(self,
-                    n_grains,
                     l_grain=2048,                    
                     n_linears=3,
                     z_dim = 128,
@@ -224,18 +219,15 @@ class RISpecVAE_v1(nn.Module):
         super(RISpecVAE_v1, self).__init__()
 
         self.z_dim = z_dim
-        self.n_grains = n_grains
         self.l_grain = l_grain
 
         # Encoder and decoder components
         self.Encoder = RISpecEncoder_v1(
-                        n_grains = n_grains,
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
                     )
         self.Decoder = RISpecDecoder_v1(
-                        n_grains = n_grains,
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
