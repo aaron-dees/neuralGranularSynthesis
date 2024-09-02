@@ -35,9 +35,9 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="riSpectralShapeModel_fullDataset",
+        project="log_mag",
         # name= f"run_{datetime.now()}",
-        name= f"1sec_continDataset_HDIM1024_noLatent",
+        name= f"1sec_continDataset",
     
         # track hyperparameters and run metadata
         config={
@@ -281,7 +281,7 @@ if __name__ == "__main__":
                 # x_hat = (torch.logit((x_hat), eps=1e-7)) / compressionFactor
                 # print("train Post: ", x_hat.sum())
 
-                transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+                transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1).to(DEVICE)
                 recon_audio = transform(x_hat.permute(0,2,1))
 
                 if PROFILE:
@@ -429,7 +429,7 @@ if __name__ == "__main__":
                     # x_hat = (torch.logit((x_hat), eps=1e-7)) / compressionFactor
                     # print("val Post: ", x_hat.sum())
 
-                    transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+                    transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1).to(DEVICE)
                     recon_audio = transform(x_hat.permute(0,2,1))
 
                     spec_loss = spec_dist(recon_audio, waveform)
@@ -579,7 +579,7 @@ if __name__ == "__main__":
                         # decompress x_hat
                         # x_hat = (torch.logit((x_hat), eps=1e-7)) / compressionFactor
 
-                        transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
+                        transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1).to(DEVICE)
                         recon_audio = transform(x_hat.permute(0,2,1))
 
                         spec_loss = spec_dist(recon_audio, waveform)
