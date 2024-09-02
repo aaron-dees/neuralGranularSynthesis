@@ -108,21 +108,21 @@ class RISpecEncoder_v1(nn.Module):
         kernel_size = 3
         stride = 2
         channels = 128
-        n_convs = 3
+        n_convs = 1
 
 
-        # encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
-        # encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
-        # self.encoder_convs = nn.ModuleList(encoder_convs)
+        encoder_convs = [nn.Sequential(stride_conv(kernel_size,1,channels,stride),residual_conv(channels,n_blocks=3))]
+        encoder_convs += [nn.Sequential(stride_conv(kernel_size,channels,channels,stride),residual_conv(channels,n_blocks=3)) for i in range(1,n_convs)]
+        self.encoder_convs = nn.ModuleList(encoder_convs)
 
         self.filter_size = (int((l_grain//2)+1))
-        self.encoder_linears = nn.Sequential(linear_block(self.filter_size,h_dim))
-        self.mu = nn.Linear(h_dim,z_dim)
-        self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
-        # self.flatten_size = int(channels*(self.filter_size/(stride**n_convs)+1))
-        # self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
-        # self.mu = nn.Linear(z_dim,z_dim)
-        # self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        # self.encoder_linears = nn.Sequential(linear_block(self.filter_size,h_dim))
+        # self.mu = nn.Linear(h_dim,z_dim)
+        # self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+        self.flatten_size = int(channels*((self.filter_size//(stride**n_convs))+1))
+        self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim),linear_block(h_dim,z_dim))
+        self.mu = nn.Linear(z_dim,z_dim)
+        self.logvar = nn.Sequential(nn.Linear(z_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
 
 
     def encode(self, x):
@@ -131,17 +131,17 @@ class RISpecEncoder_v1(nn.Module):
         # This reshap can be performed here or simply before the KL loss calculation.
         # mb_grains = x.reshape(x.shape[0]*self.n_grains,self.filter_size)
 
-        # # Convolutional layers - feature extraction
-        # x = x.unsqueeze(1)
-        # # x --> h
+        # Convolutional layers - feature extraction
+        x = x.unsqueeze(1)
+        # x --> h
         # print(x.shape)
-        # for conv in self.encoder_convs:
-        #     x = conv(x)
-        #     print("output conv size",x.shape)
+        for conv in self.encoder_convs:
+            x = conv(x)
+            # print("output conv size",x.shape)
 
-        # # flatten??
+        # flatten??
         # print(self.flatten_size)
-        # x= x.view(-1,self.flatten_size)
+        x= x.view(-1,self.flatten_size)
 
         # Linear layer
         h = self.encoder_linears(x)
@@ -207,10 +207,15 @@ class RISpecDecoder_v1(nn.Module):
         self.z_dim = z_dim
         self.h_dim = h_dim
 
-        decoder_linears = [linear_block(self.z_dim,self.h_dim)]
-        # decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
-        decoder_linears += [nn.Linear(self.h_dim, self.filter_size)]
+        decoder_linears = [linear_block(z_dim,h_dim)]
+        decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
+        decoder_linears += [nn.Linear(h_dim,self.filter_size)]
         self.decoder_linears = nn.Sequential(*decoder_linears)
+
+        # decoder_linears = [linear_block(self.z_dim,self.h_dim)]
+        # # decoder_linears += [linear_block(h_dim,h_dim) for i in range(1,n_linears)]
+        # decoder_linears += [nn.Linear(self.h_dim, self.filter_size)]
+        # self.decoder_linears = nn.Sequential(*decoder_linears)
         self.sig = nn.Sigmoid()
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
