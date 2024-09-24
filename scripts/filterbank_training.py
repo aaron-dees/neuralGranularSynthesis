@@ -1,8 +1,8 @@
 import sys
 sys.path.append('../')
 
-from models.filterbank.filterbank_vae import SpectralVAE_v1
-from models.dataloaders.waveform_dataloaders import make_audio_dataloaders_noPadding
+from models.filterbank.filterbank_vae import SpectralVAE_v1, get_noise_bands
+from models.dataloaders.waveform_dataloaders import make_audio_dataloaders_noPadding, AudioDataset
 from models.loss_functions import calc_combined_loss, compute_kld, spectral_distances, envelope_distance, calc_reconstruction_loss
 from scripts.configs.hyper_parameters_spectral import *
 from utils.utilities import plot_latents, export_latents, init_beta, print_spectral_shape, filter_spectral_shape
@@ -12,6 +12,8 @@ import librosa
 from frechet_audio_distance import FrechetAudioDistance
 import matplotlib.pyplot as plt
 import librosa.display
+from models.filterbank.filterbank import FilterBank
+
 
 
 import torch
@@ -75,8 +77,17 @@ frechet = FrechetAudioDistance(
 
 if __name__ == "__main__":
 
+    audio_dataset = AudioDataset(dataset_path=AUDIO_DIR, audio_size_samples=65536, min_batch_size=BATCH_SIZE, sampling_rate=SAMPLE_RATE, device=DEVICE)
+    n_samples = len(audio_dataset)
+    train_split=0.8
+    n_train = int(n_samples*train_split)
+    train_dataset,test_dataset = torch.utils.data.random_split(audio_dataset, [n_train, n_samples-n_train])
+    # dataloader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=False)
+    val_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+
     # Don't apply center padding here since we are using torch STFT function, but update the n_grains
-    train_dataloader,val_dataloader,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders_noPadding(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
+    _,_,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders_noPadding(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
     # Update the number of grains to account for centre padding
     if (HOP_SIZE_RATIO*100 == 6.25) :
         n_grains = 16*((tar_l+l_grain)//l_grain)-15
@@ -88,13 +99,14 @@ if __name__ == "__main__":
         n_grains = 2*(tar_l+l_grain//l_grain)-1
 
     # HACK
-    n_grains -= 1
+    # n_grains -= 1
+    n_grains = 2049
 
     print("-----Dataset Loaded-----")
     # Test dataloader
     # test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
     # test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
-    test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders_noPadding(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=False,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
+    test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders_noPadding(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=True,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
     model = SpectralVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
     
@@ -113,7 +125,6 @@ if __name__ == "__main__":
     # print(len(val_dataloader))
 
     # torch.autograd.set_detect_anomaly(True)
-
 
     if TRAIN:
 
@@ -169,7 +180,8 @@ if __name__ == "__main__":
             running_spec_loss = 0.0
             running_env_loss = 0.0
 
-            for data in train_dataloader:
+            # for data in train_dataloader:
+            for waveform in train_dataloader:
 
                 if PROFILE:
                     start1 = time.time()
@@ -185,7 +197,10 @@ if __name__ == "__main__":
                     else:
                         beta = TARGET_BETA
 
-                waveform, label = data 
+                # waveform, label = data 
+                # print(waveform.shape)
+                # print(img)
+
                 waveform = Variable(waveform).to(DEVICE)                       # we are just intrested in just images
                 # no need to flatten images
                 optimizer.zero_grad()                   # clear the gradients
@@ -217,6 +232,23 @@ if __name__ == "__main__":
                 # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
                 # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
                 # # inv_mfccs = inv_mfccs.permute(0,2,1)
+
+                # Using torch audio
+                mfcc = torchaudio.transforms.MFCC(
+                    sample_rate=SAMPLE_RATE,
+                    n_mfcc=30,
+                    log_mels=True,
+                    melkwargs={
+                        "n_fft": l_grain,
+                        "n_mels": 128,
+                        "hop_length": hop_size,
+                        "f_min": 20.0,
+                        "f_max": 8000.0
+                })
+
+                mfccs = mfcc(waveform)
+                mfccs = mfccs.permute(0,2,1)
+
                 
                 # # ---------- Get CCs, or MFCCs and invert END ----------
 
@@ -233,10 +265,12 @@ if __name__ == "__main__":
                 # torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/test_1.wav', recon_audio_test.cpu(), SAMPLE_RATE)
                 # print(img)
 
-
-                x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
+                # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
+                x_hat, z, mu, log_variance = model(mfccs[:,:,:])
+                # print(img)
 
                 # print(z.shape)
+                # print(x_hat.shape)
                 # test_audio = model.decode(z[:2,:])["audio"]
                 # print(img)
 
@@ -259,6 +293,9 @@ if __name__ == "__main__":
                 # transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
                 # recon_audio = transform(x_hat.permute(0,2,1))
                 # print("audio Post: ", recon_audio.sum())
+                # print(recon_audio.shape)
+                # print(waveform.shape)
+                # print(img)
 
                 spec_loss = spec_dist(recon_audio, waveform)
 
@@ -335,8 +372,8 @@ if __name__ == "__main__":
                 print("PROFILE END")
 
             with torch.no_grad():
-                for data in val_dataloader:
-                    waveform, label = data 
+                for waveform in val_dataloader:
+                    # waveform, label = data 
                     waveform = waveform.to(DEVICE)
                     
                     ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
@@ -360,12 +397,15 @@ if __name__ == "__main__":
                     # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
                     # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
                     # # inv_mfccs = inv_mfccs.permute(0,2,1)
+                    mfccs = mfcc(waveform)
+                    mfccs = mfccs.permute(0,2,1)
 
                     # # ---------- Get CCs, or MFCCs and invert END ----------
 
                     # ---------- Run Model ----------
 
-                    x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
+                    x_hat, z, mu, log_variance = model(mfccs[:,:,:])
+                    # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
 
                     recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
 
@@ -456,8 +496,9 @@ if __name__ == "__main__":
                     with torch.no_grad():
 
                         # Lets get batch of test images
-                        dataiter = iter(test_dataloader)
-                        waveform, labels = next(dataiter)
+                        dataiter = iter(val_dataloader)
+                        # dataiter = iter(test_dataloader)
+                        waveform = next(dataiter)
                         waveform = waveform.to(DEVICE)
 
                         ola_window = torch.from_numpy(signal.hann(l_grain,sym=False)).type(torch.float32).to(DEVICE)
@@ -481,12 +522,15 @@ if __name__ == "__main__":
                         # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
                         # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
                         # # inv_mfccs = inv_mfccs.permute(0,2,1)
+                        mfccs = mfcc(waveform)
+                        mfccs = mfccs.permute(0,2,1)
 
                         # # ---------- Get CCs, or MFCCs and invert END ----------
 
                         # ---------- Run Model ----------
 
-                        x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
+                        x_hat, z, mu, log_variance = model(mfccs[:,:,:])
+                        # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
 
                         recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
 

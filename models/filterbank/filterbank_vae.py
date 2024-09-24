@@ -98,7 +98,8 @@ class SpectralEncoder_v1(nn.Module):
                     n_grains,
                     z_dim = 128,
                     l_grain=2048,
-                    h_dim = 512
+                    h_dim = 512,
+                    n_bands = 2048
                     ):
         super(SpectralEncoder_v1, self).__init__()
 
@@ -107,6 +108,7 @@ class SpectralEncoder_v1(nn.Module):
         self.l_grain = l_grain
         self.h_dim = h_dim
         self.z_dim = z_dim
+        self.n_bands = n_bands
 
         self.flatten_size = int((l_grain//2)+1)
         self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim))
@@ -147,7 +149,8 @@ class SpectralEncoder_v2(nn.Module):
                     n_grains,
                     z_dim = 128,
                     l_grain=2048,
-                    h_dim = 512
+                    h_dim = 512,
+                    n_bands = 2048
                     ):
         super(SpectralEncoder_v2, self).__init__()
 
@@ -156,8 +159,10 @@ class SpectralEncoder_v2(nn.Module):
         self.l_grain = l_grain
         self.h_dim = h_dim
         self.z_dim = z_dim
+        self.n_bands = n_bands
 
-        self.flatten_size = int((l_grain//2)+1)
+        # self.flatten_size = int((l_grain//2)+1)
+        self.flatten_size = 30 
         self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim))
         self.mu = nn.Linear(h_dim,z_dim)
         self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
@@ -332,6 +337,7 @@ class SpectralDecoder_v2(nn.Module):
         self.filter_size = n_band
         self.z_dim = z_dim
         self.h_dim = h_dim
+        self.n_bands = n_band
 
         # original, trating each element in the latent as a control parameter
         # in_mlps = []
@@ -340,10 +346,11 @@ class SpectralDecoder_v2(nn.Module):
         #     in_mlps.append(mlp(1, self.h_dim, 1))
         # self.in_mlps = nn.ModuleList(in_mlps)
         # self.gru = gru(self.z_dim, self.h_dim)
+        # self.out_mlp = mlp(self.h_dim + n_control_params, self.h_dim, 3)
 
         self.in_mlps = mlp(self.z_dim, self.h_dim, 1)
         self.gru = gru(1, self.h_dim)
-        self.out_mlp = mlp(self.h_dim + self.z_dim, self.h_dim, 3)
+        self.out_mlp = mlp(self.h_dim, self.h_dim, 3)
         self.amplitudes_layer = nn.Linear(self.h_dim, n_band)
 
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
@@ -352,15 +359,21 @@ class SpectralDecoder_v2(nn.Module):
         z = z.reshape(-1, self.n_grains, z.shape[1])
         # for i in range(len(self.in_mlps)):
         #     hidden.append(self.in_mlps[i](z[:,:,i].unsqueeze(-1)))
+        # print("In: ", z.shape)
         hidden.append(self.in_mlps(z))
         hidden = torch.cat(hidden, dim=-1)
+        # print("Cat mlps: ", hidden.shape)
         hidden = self.gru(hidden)[0]
+        # print("GRU: ", hidden.shape)
         # Why do we use the below??
         # for i in range(self.z_dim):
             # hidden = torch.cat([hidden, z[:,:,i].unsqueeze(-1)], dim=-1)
-        hidden = torch.cat([hidden, z], dim=-1)
+        # hidden = torch.cat([hidden, z], dim=-1)
+        # print("Control Cat: ", hidden.shape)
         hidden = self.out_mlp(hidden)
+        # print("Out mlp: ", hidden.shape)
         amplitudes = self.amplitudes_layer(hidden).permute(0,2,1)
+        # print("Amp layer: ", amplitudes.shape)
         amplitudes = mod_sigmoid(amplitudes)
 
         # print(z.shape)
@@ -448,10 +461,18 @@ class SpectralVAE_v1(nn.Module):
         self.noise_bands = self.noise_bands.to(amplitudes.device)
         #avoid overfitting to noise values
         self.noise_bands = torch.roll(self.noise_bands, shifts=int(torch.randint(low=0, high=self.noise_bands.shape[-1], size=(1,))), dims=-1)
-        signal_len = amplitudes.shape[-1]*self.synth_window
+        # signal_len = amplitudes.shape[-1]*self.synth_window
+        signal_len = 65536
+        # print(amplitudes.shape)
+        # print(signal_len)
+        # print(img)
         #smaller amp len than noise_len
         if amplitudes.shape[-1]/frame_len < 1:
-            upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='linear')
+            # print(amplitudes.shape)
+            scale_factor = 65536 / amplitudes.shape[-1]
+            upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=scale_factor, mode='linear')
+            # upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='linear')
+            # print("Upsampled amps: ", upsampled_amplitudes.shape)
             signal = (self.noise_bands[..., :signal_len]*upsampled_amplitudes).sum(1, keepdim=True)
         else:
             for i in range(n_frames):

@@ -13,7 +13,9 @@ import utils.utilities as utils
 #    stability by modifying the sigmoid to have a scaled output, larger slope by exponentiating, and
 #   threshold at a minimum value, as seen in below retunr statement.
 def mod_sigmoid(x):
+    # return 4 * torch.sigmoid(x)**(math.log(10)) + 1e-7
     return 2 * torch.sigmoid(x)**(math.log(10)) + 1e-7
+    # return 2 * torch.sigmoid(x)**(math.log(10)) + 1e-18
 
 def safe_log(x, eps=1e-7):
     return torch.log(x + eps)
