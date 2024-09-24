@@ -461,17 +461,17 @@ class SpectralVAE_v1(nn.Module):
         self.noise_bands = self.noise_bands.to(amplitudes.device)
         #avoid overfitting to noise values
         self.noise_bands = torch.roll(self.noise_bands, shifts=int(torch.randint(low=0, high=self.noise_bands.shape[-1], size=(1,))), dims=-1)
-        # signal_len = amplitudes.shape[-1]*self.synth_window
-        signal_len = 65536
+        signal_len = amplitudes.shape[-1]*self.synth_window
+        # signal_len = 65536
         # print(amplitudes.shape)
         # print(signal_len)
         # print(img)
         #smaller amp len than noise_len
         if amplitudes.shape[-1]/frame_len < 1:
             # print(amplitudes.shape)
-            scale_factor = 65536 / amplitudes.shape[-1]
-            upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=scale_factor, mode='linear')
-            # upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='linear')
+            # scale_factor = 65536 / amplitudes.shape[-1]
+            # upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=scale_factor, mode='linear')
+            upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='linear')
             # print("Upsampled amps: ", upsampled_amplitudes.shape)
             signal = (self.noise_bands[..., :signal_len]*upsampled_amplitudes).sum(1, keepdim=True)
         else:

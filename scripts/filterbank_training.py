@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
     # HACK
     # n_grains -= 1
-    n_grains = 2049
+    n_grains = 2048
 
     print("-----Dataset Loaded-----")
     # Test dataloader
@@ -244,7 +244,7 @@ if __name__ == "__main__":
                         "hop_length": hop_size,
                         "f_min": 20.0,
                         "f_max": 8000.0
-                })
+                }).to(DEVICE)
 
                 mfccs = mfcc(waveform)
                 mfccs = mfccs.permute(0,2,1)
@@ -266,7 +266,7 @@ if __name__ == "__main__":
                 # print(img)
 
                 # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
-                x_hat, z, mu, log_variance = model(mfccs[:,:,:])
+                x_hat, z, mu, log_variance = model(mfccs[:,:n_grains,:])
                 # print(img)
 
                 # print(z.shape)
@@ -404,7 +404,7 @@ if __name__ == "__main__":
 
                     # ---------- Run Model ----------
 
-                    x_hat, z, mu, log_variance = model(mfccs[:,:,:])
+                    x_hat, z, mu, log_variance = model(mfccs[:,:n_grains,:])
                     # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
 
                     recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
@@ -529,7 +529,7 @@ if __name__ == "__main__":
 
                         # ---------- Run Model ----------
 
-                        x_hat, z, mu, log_variance = model(mfccs[:,:,:])
+                        x_hat, z, mu, log_variance = model(mfccs[:,:n_grains,:])
                         # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
 
                         recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
