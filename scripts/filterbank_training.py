@@ -85,44 +85,16 @@ if __name__ == "__main__":
     # dataloader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=False)
     val_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    # TODO Make a test dataloader
 
-    # Don't apply center padding here since we are using torch STFT function, but update the n_grains
-    _,_,dataset,tar_l,n_grains,l_grain,hop_size,classes = make_audio_dataloaders_noPadding(data_dir=AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=False,batch_size=BATCH_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
-    # Update the number of grains to account for centre padding
-    if (HOP_SIZE_RATIO*100 == 6.25) :
-        n_grains = 16*((tar_l+l_grain)//l_grain)-15
-    elif (HOP_SIZE_RATIO*100 == 12.5) :
-        n_grains = 8*((tar_l+l_grain)//l_grain)-7
-    elif (HOP_SIZE_RATIO*100 == 25) :
-        n_grains = 4*((tar_l+l_grain)//l_grain)-3
-    elif (HOP_SIZE_RATIO*100 == 50) :
-        n_grains = 2*(tar_l+l_grain//l_grain)-1
-
-    # HACK
-    # n_grains -= 1
-    n_grains = 2048
+    hop_size = int(GRAIN_LENGTH * HOP_SIZE_RATIO)
+    l_grain = GRAIN_LENGTH
 
     print("-----Dataset Loaded-----")
-    # Test dataloader
-    # test_set = torch.utils.data.Subset(dataset, range(0,TEST_SIZE))
-    # test_dataloader = torch.utils.data.DataLoader(test_set, batch_size = TEST_SIZE, shuffle=False, num_workers=0)
-    test_dataloader, _, _, _, _, _, _, _ = make_audio_dataloaders_noPadding(data_dir=TEST_AUDIO_DIR,classes=["sea_waves"],sr=SAMPLE_RATE,silent_reject=[0,0],amplitude_norm=True,batch_size=TEST_SIZE,hop_ratio=HOP_SIZE_RATIO, tar_l=TARGET_LENGTH,l_grain=GRAIN_LENGTH,high_pass_freq=HIGH_PASS_FREQ,num_workers=0)
 
-    model = SpectralVAE_v1(n_grains=n_grains, l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
+    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
     
     model.to(DEVICE)
-
-    # # Split into train and validation
-    # # Program this better
-    # usd_waveforms = ESC50WaveformDataset(ANNOTATIONS_FILE, AUDIO_DIR, None, SAMPLE_RATE, NUM_SAMPLES, DATALOADER_DEVICE)
-    # split = [(5*len(usd_waveforms))//6, (1*len(usd_waveforms))//6+1]
-    # train_set, val_set = torch.utils.data.random_split(usd_waveforms, split)
-    # train_dataloader = torch.utils.data.DataLoader(train_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
-    # val_dataloader = torch.utils.data.DataLoader(val_set, batch_size = BATCH_SIZE, shuffle=False, num_workers=0)
-
-    # print("Sizes")
-    # print(len(train_dataloader))
-    # print(len(val_dataloader))
 
     # torch.autograd.set_detect_anomaly(True)
 
@@ -224,32 +196,6 @@ if __name__ == "__main__":
                 inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
                 inv_cep_coeffs_log_mag = (dct.idct(cepstral_coeff))
                 
-                # # MFCCs  - use librosa function as they are more reliable
-                # # Optimise this for speed
-                # # grain_fft = grain_fft.permute(0,2,1)
-                # # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-                # # mfccs = dct.dct(grain_mel)
-                # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
-                # # inv_mfccs = inv_mfccs.permute(0,2,1)
-
-                # Using torch audio
-                mfcc = torchaudio.transforms.MFCC(
-                    sample_rate=SAMPLE_RATE,
-                    n_mfcc=30,
-                    log_mels=True,
-                    melkwargs={
-                        "n_fft": l_grain,
-                        "n_mels": 128,
-                        "hop_length": hop_size,
-                        "f_min": 20.0,
-                        "f_max": 8000.0
-                }).to(DEVICE)
-
-                mfccs = mfcc(waveform)
-                mfccs = mfccs.permute(0,2,1)
-
-                
                 # # ---------- Get CCs, or MFCCs and invert END ----------
 
                 if PROFILE:
@@ -258,23 +204,8 @@ if __name__ == "__main__":
                 
                 # ---------- Run Model ----------
 
-                # compressionFactor=1
-                # mag_spec = (torch.logit((mag_spec), eps=1e-7)) / compressionFactor
 
-                # recon_audio_test = transform(mag_spec.permute(0,2,1))
-                # torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/test_1.wav', recon_audio_test.cpu(), SAMPLE_RATE)
-                # print(img)
-
-                # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
-                x_hat, z, mu, log_variance = model(mfccs[:,:n_grains,:])
-                # print(img)
-
-                # print(z.shape)
-                # print(x_hat.shape)
-                # test_audio = model.decode(z[:2,:])["audio"]
-                # print(img)
-
-                recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
+                x_hat, z, mu, log_variance = model(waveform)
 
                 if PROFILE:
                     end2 = time.time()
@@ -282,24 +213,12 @@ if __name__ == "__main__":
 
                 # ---------- Run Model END ----------
 
-                # decompress x_hat
-                # x_hat = (torch.logit((x_hat), eps=1e-7)) / compressionFactor
-                # print("train Post: ", x_hat.sum())
-
                 if PROFILE:
                     end3 = time.time()
                     start4 = time.time()
 
-                # transform = torchaudio.transforms.GriffinLim(n_fft=l_grain, hop_length=hop_size, power=1)
-                # recon_audio = transform(x_hat.permute(0,2,1))
-                # print("audio Post: ", recon_audio.sum())
-                # print(recon_audio.shape)
-                # print(waveform.shape)
-                # print(img)
+                spec_loss = spec_dist(x_hat, waveform)
 
-                spec_loss = spec_dist(recon_audio, waveform)
-
-                #mu shape: [bs*n_grains, z_dim]
                 # Compute loss
                 # spec_loss = spec_dist(audio_sum, waveform)
                 if beta > 0:
@@ -309,7 +228,7 @@ if __name__ == "__main__":
                     kld_loss = 0.0
                 # Notes this won't work when using grains, need to look into this
                 if ENV_DIST > 0:
-                    env_loss =  envelope_distance(recon_audio, waveform, n_fft=1024,log=True) * ENV_DIST
+                    env_loss =  envelope_distance(x_hat, waveform, n_fft=1024,log=True) * ENV_DIST
                 else:
                     env_loss = 0.0
 
@@ -390,28 +309,16 @@ if __name__ == "__main__":
                     inv_cep_coeffs_log_mag = (dct.idct(cepstral_coeff))
                     inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
-                    # # MFCCs  - use librosa function as they are more reliable
-                    # # grain_fft = grain_fft.permute(0,2,1)
-                    # # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-                    # # mfccs = dct.dct(grain_mel)
-                    # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                    # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
-                    # # inv_mfccs = inv_mfccs.permute(0,2,1)
-                    mfccs = mfcc(waveform)
-                    mfccs = mfccs.permute(0,2,1)
-
                     # # ---------- Get CCs, or MFCCs and invert END ----------
 
                     # ---------- Run Model ----------
 
-                    x_hat, z, mu, log_variance = model(mfccs[:,:n_grains,:])
+                    x_hat, z, mu, log_variance = model(waveform)
                     # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
-
-                    recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
 
                     # ---------- Run Model END ----------
 
-                    spec_loss = spec_dist(recon_audio, waveform)
+                    spec_loss = spec_dist(x_hat, waveform)
 
                     # print(img)
 
@@ -422,7 +329,7 @@ if __name__ == "__main__":
                         kld_loss = 0.0
                     # Notes this won't work when using grains, need to look into this
                     if ENV_DIST > 0:
-                        env_loss =  envelope_distance(recon_audio, waveform, n_fft=l_grain,log=True) * ENV_DIST
+                        env_loss =  envelope_distance(x_hat, waveform, n_fft=l_grain,log=True) * ENV_DIST
                     else:
                         env_loss = 0.0
 
@@ -515,30 +422,19 @@ if __name__ == "__main__":
                         inv_cep_coeffs_log_mag = (dct.idct(cepstral_coeff))
                         inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
 
-                        # # MFCCs  - use librosa function as they are more reliable
-                        # # grain_fft = grain_fft.permute(0,2,1)
-                        # # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-                        # # mfccs = dct.dct(grain_mel)
-                        # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-                        # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
-                        # # inv_mfccs = inv_mfccs.permute(0,2,1)
-                        mfccs = mfcc(waveform)
-                        mfccs = mfccs.permute(0,2,1)
 
                         # # ---------- Get CCs, or MFCCs and invert END ----------
 
                         # ---------- Run Model ----------
 
-                        x_hat, z, mu, log_variance = model(mfccs[:,:n_grains,:])
+                        x_hat, z, mu, log_variance = model(waveform)
                         # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
-
-                        recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
 
                         # ---------- Run Model END ----------
 
-                        spec_loss = spec_dist(recon_audio, waveform)
+                        spec_loss = spec_dist(x_hat, waveform)
 
-                        for i, recon_signal in enumerate(recon_audio):
+                        for i, recon_signal in enumerate(x_hat):
                             # spec_loss = spec_dist(x_hat[i], waveforms[i])
                             # Check the energy differences
                             print("Saving ", i)

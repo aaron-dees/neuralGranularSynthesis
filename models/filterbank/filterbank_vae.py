@@ -17,6 +17,7 @@ import math
 from utils.utilities import sample_from_distribution, generate_noise_grains
 from utils.dsp_components import noise_filtering, mod_sigmoid, safe_log10
 from models.filterbank.filterbank import FilterBank
+from scripts.configs.hyper_parameters_spectral import SAMPLE_RATE, DEVICE
 
 def compute_magnitude_filters(filters):
     magnitude_filters = torch.fft.rfft(filters)
@@ -110,6 +111,7 @@ class SpectralEncoder_v1(nn.Module):
         self.z_dim = z_dim
         self.n_bands = n_bands
 
+
         self.flatten_size = int((l_grain//2)+1)
         self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim))
         self.mu = nn.Linear(h_dim,z_dim)
@@ -120,6 +122,9 @@ class SpectralEncoder_v1(nn.Module):
 
         # The reshape is important for the KL Loss and trating each grains as a batch value,
         # This reshap can be performed here or simply before the KL loss calculation.
+        in_size = x.shape
+
+
         mb_grains = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
 
         # Linear layer
@@ -146,20 +151,20 @@ class SpectralEncoder_v1(nn.Module):
 class SpectralEncoder_v2(nn.Module):
 
     def __init__(self,
-                    n_grains,
                     z_dim = 128,
                     l_grain=2048,
                     h_dim = 512,
-                    n_bands = 2048
+                    n_bands = 2048,
+                    synth_window = 32
                     ):
         super(SpectralEncoder_v2, self).__init__()
 
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         self.h_dim = h_dim
         self.z_dim = z_dim
         self.n_bands = n_bands
+        self.synth_window = synth_window
 
         # self.flatten_size = int((l_grain//2)+1)
         self.flatten_size = 30 
@@ -167,11 +172,27 @@ class SpectralEncoder_v2(nn.Module):
         self.mu = nn.Linear(h_dim,z_dim)
         self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
 
-        self.norm = nn.LayerNorm((self.n_grains, self.flatten_size))
+
+        self.mfcc = torchaudio.transforms.MFCC(
+        sample_rate=SAMPLE_RATE,
+            n_mfcc=30,
+            log_mels=True,
+            melkwargs={
+                "n_fft": 512,
+                "n_mels": 128,
+                "hop_length": 32,
+                "f_min": 20.0,
+                "f_max": 8000.0
+        }).to(DEVICE)
+
+        #TODO check this is ok, I've switch from using 2D norm to 1D, since I want my n_frames to be dynamic.
+        self.norm = nn.LayerNorm(self.flatten_size)
+        # self.norm = nn.LayerNorm((self.n_grains, self.flatten_size))
         self.gru = nn.GRU(input_size=self.flatten_size, hidden_size=self.h_dim, batch_first=True)
         self.linear = nn.Linear(self.h_dim, self.z_dim)
         self.mu = nn.Linear(self.h_dim, self.z_dim)
         self.logvar = nn.Linear(self.h_dim, self.z_dim)
+
 
 
     def encode(self, x):
@@ -194,12 +215,18 @@ class SpectralEncoder_v2(nn.Module):
         # # Bounce down to compressed z dimensions.
         # z = self.dense_out(z)
 
-        h = self.norm(x)
+        # Based on the input signal size and the synth window, calculate the internal sample size, this is to account for upsampling later
+        in_size = x.shape[-1]
+        n_frames = int(in_size // self.synth_window)
+
+        mfccs = self.mfcc(x).permute(0,2,1)
+
+        h = self.norm(mfccs[:,:n_frames,:])
         # h = h.unsqueeze(-2)
         # z = z.permute(2, 0, 1)
         h = self.gru(h)[0]
         # print(img)
-        h = h.reshape(h.shape[0]*self.n_grains,self.h_dim)
+        # h = h.reshape(h.shape[0]*n_frames,self.h_dim)
         # z = self.linear(z)
         mu = self.mu(h)
         logvar = self.logvar(h)
@@ -248,7 +275,6 @@ class SpectralDecoder_v1(nn.Module):
     """
 
     def __init__(self,
-                    n_grains,
                     z_dim,
                     l_grain = 2048,
                     n_linears = 3,
@@ -257,7 +283,6 @@ class SpectralDecoder_v1(nn.Module):
                     ):
         super(SpectralDecoder_v1, self).__init__()
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         # self.filter_size = l_grain//2+1
         self.filter_size = n_band
@@ -322,7 +347,6 @@ class SpectralDecoder_v2(nn.Module):
     """
 
     def __init__(self,
-                    n_grains,
                     z_dim,
                     l_grain = 2048,
                     n_linears = 3,
@@ -331,7 +355,6 @@ class SpectralDecoder_v2(nn.Module):
                     ):
         super(SpectralDecoder_v2, self).__init__()
 
-        self.n_grains = n_grains
         self.l_grain = l_grain
         # self.filter_size = l_grain//2+1
         self.filter_size = n_band
@@ -356,7 +379,7 @@ class SpectralDecoder_v2(nn.Module):
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
         hidden = []
-        z = z.reshape(-1, self.n_grains, z.shape[1])
+        # z = z.reshape(-1, self.n_grains, z.shape[1])
         # for i in range(len(self.in_mlps)):
         #     hidden.append(self.in_mlps[i](z[:,:,i].unsqueeze(-1)))
         # print("In: ", z.shape)
@@ -399,7 +422,6 @@ class SpectralDecoder_v2(nn.Module):
 class SpectralVAE_v1(nn.Module):
 
     def __init__(self,
-                    n_grains,
                     l_grain=2048,                    
                     n_linears=3,
                     z_dim = 128,
@@ -416,7 +438,6 @@ class SpectralVAE_v1(nn.Module):
         super(SpectralVAE_v1, self).__init__()
 
         self.z_dim = z_dim
-        self.n_grains = n_grains
         self.l_grain = l_grain
         self.synth_window = synth_window
 
@@ -427,13 +448,12 @@ class SpectralVAE_v1(nn.Module):
 
         # Encoder and decoder components
         self.Encoder = SpectralEncoder_v2(
-                        n_grains = n_grains,
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
+                        synth_window=synth_window,
                     )
         self.Decoder = SpectralDecoder_v2(
-                        n_grains = n_grains,
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
@@ -486,7 +506,10 @@ class SpectralVAE_v1(nn.Module):
                 else:
                     upsampled_amplitudes = F.interpolate(amplitudes[..., i*frame_len:(i+1)*frame_len], scale_factor=self.synth_window, mode='linear')
                     signal = torch.cat([signal, (self.noise_bands*upsampled_amplitudes).sum(1, keepdim=True)], dim=-1)
-        return signal 
+
+        # Remove the extra dimension.
+        return signal.reshape(signal.shape[0], signal.shape[2])
+        # return signal 
 
         # Number of convolutional layers
     def encode(self, x):
