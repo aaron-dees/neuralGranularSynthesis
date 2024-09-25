@@ -39,7 +39,7 @@ if WANDB:
         # set the wandb project where this run will be logged
         project="filterbank_model",
         # name= f"run_{datetime.now()}",
-        name= f"removed_reshape",
+        name= f"removed_reshape_addedtoKLLossCalc",
     
         # track hyperparameters and run metadata
         config={
@@ -207,6 +207,9 @@ if __name__ == "__main__":
 
                 x_hat, z, mu, log_variance = model(waveform)
 
+                mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
+                log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])
+
                 if PROFILE:
                     end2 = time.time()
                     start3 = time.time()
@@ -315,6 +318,8 @@ if __name__ == "__main__":
 
                     x_hat, z, mu, log_variance = model(waveform)
                     # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
+                    mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
+                    log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])
 
                     # ---------- Run Model END ----------
 
@@ -429,6 +434,8 @@ if __name__ == "__main__":
 
                         x_hat, z, mu, log_variance = model(waveform)
                         # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
+                        mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
+                        log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])
 
                         # ---------- Run Model END ----------
 

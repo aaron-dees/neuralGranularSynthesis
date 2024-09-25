@@ -226,7 +226,7 @@ class SpectralEncoder_v2(nn.Module):
         # z = z.permute(2, 0, 1)
         h = self.gru(h)[0]
         # print(img)
-        h = h.reshape(h.shape[0]*n_frames,self.h_dim)
+        # h = h.reshape(h.shape[0]*n_frames,self.h_dim)
         # z = self.linear(z)
         mu = self.mu(h)
         logvar = self.logvar(h)
@@ -379,7 +379,7 @@ class SpectralDecoder_v2(nn.Module):
     def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
 
         hidden = []
-        z = z.reshape(-1, 2048, z.shape[1])
+        # z = z.reshape(-1, n_grains, z.shape[1])
         # for i in range(len(self.in_mlps)):
         #     hidden.append(self.in_mlps[i](z[:,:,i].unsqueeze(-1)))
         # print("In: ", z.shape)
