@@ -37,9 +37,9 @@ if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
     wandb.init(
         # set the wandb project where this run will be logged
-        project="riSpectralShapeModel_fullDataset",
+        project="filterbank_model",
         # name= f"run_{datetime.now()}",
-        name= f"1sec_continDataset_HDIM1024_noLatent",
+        name= f"removed_reshape",
     
         # track hyperparameters and run metadata
         config={
