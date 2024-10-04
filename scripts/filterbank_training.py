@@ -75,9 +75,14 @@ frechet = FrechetAudioDistance(
     verbose=False
 )
 
+# 2**9 seems to be the limit
+# AUDIO_SAMPLE_SIZE = 2**16
+AUDIO_SAMPLE_SIZE = 2**16
+print("Audio Sample Size: ", AUDIO_SAMPLE_SIZE)
+
 if __name__ == "__main__":
 
-    audio_dataset = AudioDataset(dataset_path=AUDIO_DIR, audio_size_samples=65536, min_batch_size=BATCH_SIZE, sampling_rate=SAMPLE_RATE, device=DEVICE)
+    audio_dataset = AudioDataset(dataset_path=AUDIO_DIR, audio_size_samples=AUDIO_SAMPLE_SIZE, min_batch_size=BATCH_SIZE, sampling_rate=SAMPLE_RATE, device=DEVICE)
     n_samples = len(audio_dataset)
     train_split=0.8
     n_train = int(n_samples*train_split)
@@ -673,8 +678,9 @@ if __name__ == "__main__":
         with torch.no_grad():
 
             # Lets get batch of test images
-            dataiter = iter(test_dataloader)
-            waveforms, labels = next(dataiter)
+            # dataiter = iter(test_dataloader)
+            dataiter = iter(val_dataloader)
+            waveforms = next(dataiter)
 
             waveforms = waveforms.to(DEVICE)
             # ---------- Turn Waveform into grains ----------
@@ -712,33 +718,14 @@ if __name__ == "__main__":
             inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
             inv_cep_coeffs_test = inv_cep_coeffs
 
-            # # MFCCs  - use librosa function as they are more reliable
-            # # grain_fft = grain_fft.permute(0,2,1)
-            # # grain_mel= safe_log10(torch.from_numpy((librosa.feature.melspectrogram(S=np.abs(grain_fft.cpu().numpy())**2, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH, n_mels=NUM_MELS))))
-            # # mfccs = dct.dct(grain_mel)
-            # # inv_mfccs = dct.idct(mfccs).cpu().numpy()       
-            # # inv_mfccs = torch.from_numpy(librosa.feature.inverse.mel_to_stft(M=10**inv_mfccs, sr=SAMPLE_RATE, n_fft=GRAIN_LENGTH)).to(DEVICE)
-            # # inv_mfccs = inv_mfccs.permute(0,2,1)
-
-            # # ---------- Get CCs, or MFCCs and invert END ----------
-
-            # --------- Extract the prev ri spec -----------
-            first_grain = ri_spec[:, 0, :]
-            #current_ri_spec = ri_spec[:, 1:, :]
-            current_r_spec = compress_real_spec[:, 1:, :]
-            prev_ri_spec = ri_spec[:,:-1,:]
-            inv_cep_coeffs = inv_cep_coeffs[:, 1:, :]
-
-            # Reshape to [bs*n_grains, l_grain] 
-            # inv_cep_coeffs = inv_cep_coeffs.reshape(inv_cep_coeffs.shape[0]*(n_grains-1), (int((l_grain//2)+1)))
-            prev_ri_spec = prev_ri_spec.reshape(prev_ri_spec.shape[0]*(n_grains-1), (int((l_grain//2)+1))*2)
-
 
             # ---------- Run Model ----------
 
-            x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
-
-            recon_audio = x_hat.reshape(x_hat.shape[0], x_hat.shape[2])
+            print(waveforms.shape)
+            x_hat, z, mu, log_variance = model(waveforms)
+            recon_audio = x_hat
+            print(recon_audio.shape)
+            print(img)
 
             # ---------- Run Model END ----------
 
