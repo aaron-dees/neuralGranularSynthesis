@@ -15,7 +15,7 @@ import librosa
 import math
 
 from utils.utilities import sample_from_distribution, generate_noise_grains
-from utils.dsp_components import noise_filtering, mod_sigmoid, safe_log10
+from utils.dsp_components import noise_filtering, mod_sigmoid, safe_log10, amp_to_impulse_response, fft_convolve
 from models.filterbank.filterbank import FilterBank
 from scripts.configs.hyper_parameters_spectral import SAMPLE_RATE, DEVICE
 
@@ -474,6 +474,24 @@ class SpectralVAE_v1(nn.Module):
                         n_band=n_band,
 
                     )
+    def ddsp_noise_synth(self, amplitudes):
+        """ Apply predicted amplitudes to DDSP noise synthesizer
+        
+        """
+        target_size = 64*32
+
+        amplitudes = amplitudes.permute(0,2,1)
+
+        impulse = amp_to_impulse_response(amplitudes, target_size)
+        noise = torch.rand(
+            impulse.shape[0],
+            impulse.shape[1],
+            impulse.shape[2],
+        ).to(impulse) * 2 - 1
+
+        noise = fft_convolve(noise, impulse).contiguous()
+        print(noise.shape)
+        return noise
 
     def synth_batch(self, amplitudes, noise_index=0):
         """Apply the predicted amplitudes to the noise bands.
@@ -554,6 +572,7 @@ class SpectralVAE_v1(nn.Module):
         if sampling:
             amplitudes, _ = self.Decoder(z)
             signal = self.synth_batch(amplitudes=amplitudes)
+            test = self.ddsp_noise_synth(amplitudes=amplitudes)
         else:
             amplitudes, _ = self.Decoder(mu)
             signal = self.synth_batch(amplitudes=amplitudes)
