@@ -376,7 +376,11 @@ class SpectralDecoder_v2(nn.Module):
         self.out_mlp = mlp(self.h_dim, self.h_dim, 3)
         self.amplitudes_layer = nn.Linear(self.h_dim, n_band)
 
-    def decode(self, z, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
+    def decode(self, z, gru_state=None, n_grains=None, ola_windows=None, ola_folder=None, ola_divisor=None):
+
+        if gru_state==None:
+            # note num layer is 1 here
+            gru_state=torch.zeros(z.shape[0], 1, self.h_dim)
 
         hidden = []
         # z = z.reshape(-1, n_grains, z.shape[1])
@@ -386,7 +390,12 @@ class SpectralDecoder_v2(nn.Module):
         hidden.append(self.in_mlps(z))
         hidden = torch.cat(hidden, dim=-1)
         # print("Cat mlps: ", hidden.shape)
-        hidden = self.gru(hidden)[0]
+        hidden, gru_state = self.gru(hidden, gru_state)
+        # print(state.shape)
+        # print(hidden.shape)
+        # for i in range(hidden.shape[1]):
+        #     print(f"{hidden[:,i,:].sum():.30}")
+        # print(f"{hidden[:,0,:].sum():.30}")
         # print("GRU: ", hidden.shape)
         # Why do we use the below??
         # for i in range(self.z_dim):
@@ -411,13 +420,17 @@ class SpectralDecoder_v2(nn.Module):
         # filter_coeffs = filter_coeffs.permute(0,2,1)
         # print(filter_coeffs.shape)
 
-        return amplitudes 
+        # print("Amp shape: ", amplitudes.shape)
+        # print(f"Amps first: {amplitudes[:,:,:].sum():.40}")
 
-    def forward(self, z, n_grains=None, ola_windows=None, ola_divisor=None):
 
-        audio = self.decode(z, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
+        return amplitudes, gru_state
 
-        return audio
+    def forward(self, z, gru_state=None, n_grains=None, ola_windows=None, ola_divisor=None):
+
+        amplitudes, gru_state = self.decode(z, gru_state=gru_state, n_grains=n_grains, ola_windows=ola_windows, ola_divisor=ola_divisor)
+
+        return amplitudes, gru_state
     
 class SpectralVAE_v1(nn.Module):
 
@@ -462,7 +475,7 @@ class SpectralVAE_v1(nn.Module):
 
                     )
 
-    def synth_batch(self, amplitudes):
+    def synth_batch(self, amplitudes, noise_index=0):
         """Apply the predicted amplitudes to the noise bands.
         Args:
         ----------
@@ -475,6 +488,7 @@ class SpectralVAE_v1(nn.Module):
             Output audio signal
         """
 
+        noise_index = noise_index * self.synth_window
         #synth in noise_len frames to fit longer sequences on GPU memory
         frame_len = int(self.noise_len/self.synth_window)
         n_frames = math.ceil(amplitudes.shape[-1]/frame_len)
@@ -487,13 +501,16 @@ class SpectralVAE_v1(nn.Module):
         # print(signal_len)
         # print(img)
         #smaller amp len than noise_len
+        # if amplitudes.shape[-1]/frame_len <= 1:
         if amplitudes.shape[-1]/frame_len < 1:
             # print(amplitudes.shape)
             # scale_factor = 65536 / amplitudes.shape[-1]
             # upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=scale_factor, mode='linear')
-            upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='linear')
-            # print("Upsampled amps: ", upsampled_amplitudes.shape)
-            signal = (self.noise_bands[..., :signal_len]*upsampled_amplitudes).sum(1, keepdim=True)
+            # upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='linear')
+            upsampled_amplitudes = F.interpolate(amplitudes, scale_factor=self.synth_window, mode='nearest')
+            # print(f"Upsampled amps: {upsampled_amplitudes.shape}")
+            # print(f"Up Amps Sum: {upsampled_amplitudes[:,:,:32].sum():.16}")
+            signal = (self.noise_bands[..., noise_index:noise_index+signal_len]*upsampled_amplitudes).sum(1, keepdim=True)
         else:
             for i in range(n_frames):
                 if i == 0:
@@ -519,12 +536,12 @@ class SpectralVAE_v1(nn.Module):
     
         return {"z":z, "mu":mu, "logvar":log_variance} 
 
-    def decode(self, z):
+    def decode(self, z, gru_state=None, noise_index=0):
+
+        amplitudes, gru_state = self.Decoder(z, gru_state=gru_state)
+        signal = self.synth_batch(amplitudes=amplitudes, noise_index=noise_index)
             
-        amplitudes = self.Decoder(z)
-        signal = self.synth_batch(amplitudes=amplitudes)
-            
-        return {"audio":signal}
+        return {"audio":signal, "gru_state":gru_state}
 
     def forward(self, x, sampling=True):
 
@@ -535,10 +552,10 @@ class SpectralVAE_v1(nn.Module):
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
-            amplitudes = self.Decoder(z)
+            amplitudes, _ = self.Decoder(z)
             signal = self.synth_batch(amplitudes=amplitudes)
         else:
-            amplitudes = self.Decoder(mu)
+            amplitudes, _ = self.Decoder(mu)
             signal = self.synth_batch(amplitudes=amplitudes)
 
         return signal, z, mu, log_variance

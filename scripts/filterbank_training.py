@@ -32,6 +32,8 @@ print("--- Device: ", DEVICE)
 # print("--- Venv: ", sys.prefix)
 # sdcsff
 
+torch.manual_seed(0)
+
 # start a new wandb run to track this script
 if WANDB:
     wandb.login(key='31e9e9ed4e2efc0f50b1e6ffc9c1e6efae114bd2')
@@ -724,18 +726,81 @@ if __name__ == "__main__":
             print(waveforms.shape)
             x_hat, z, mu, log_variance = model(waveforms)
             recon_audio = x_hat
+            print(z.shape)
+
+
+            # # # Seq test
+            # # CHUNK_SIZE = 64
+            CHUNK_SIZE = 16
+            # # handle the first
+            # recon_cat_full = model.decode(z[:,:,:])["audio"]
+            # # recon_cat_full_test = model.decode(z[:,:,:])["audio"]
+            # start = time.time()
+            out = model.decode(z[:,:CHUNK_SIZE,:])
+            recon_cat = out["audio"]
+            gru_state = out["gru_state"]
+            print("State Shape: ", gru_state.shape)
+            end = time.time()
+            # handle the remaining
+            for i in range(1,(AUDIO_SAMPLE_SIZE//hop_size)//CHUNK_SIZE):
+                # print("Latent Index: ", i*CHUNK_SIZE)
+                # print("Noise Index: ", i*CHUNK_SIZE*32)
+                # tmp = model.decode(z[:,i*CHUNK_SIZE:(i+1)*CHUNK_SIZE,:], noise_index=i*CHUNK_SIZE)["audio"]
+                out = model.decode(z[:,i*CHUNK_SIZE:(i+1)*CHUNK_SIZE,:], gru_state=gru_state, noise_index=i*CHUNK_SIZE)
+                # out = model.decode(z[:,i*CHUNK_SIZE:(i+1)*CHUNK_SIZE,:], gru_state=gru_state)
+                # out = model.decode(z[:,i*CHUNK_SIZE:(i+1)*CHUNK_SIZE,:])
+                tmp = out["audio"]
+                gru_state=out["gru_state"]
+                recon_cat = torch.cat((recon_cat, tmp), dim=-1)
+
+            # # Using a sliding window of chunk size
+            # # CHUNK_SIZE = 64
+            # CHUNK_SIZE = 64
+            # # handle the first
+            # start = time.time()
+            # recon_cat = model.decode(z[:,:CHUNK_SIZE,:])["audio"]
+            # # print(recon_cat.shape)
+            # # print(img)
+            # end = time.time()
+            # print("\t Decode Time: ", end-start)
+            # # print(img)
+            # # handle the remaining
+            # print((AUDIO_SAMPLE_SIZE-recon_cat.shape[-1])//hop_size)
+            # for i in range(1,((AUDIO_SAMPLE_SIZE-recon_cat.shape[-1])//hop_size)):
+            #     # print("Latent Index: ", i*CHUNK_SIZE)
+            #     # print("Noise Index: ", i*CHUNK_SIZE*32)
+            #     # tmp = model.decode(z[:,i*CHUNK_SIZE:(i+1)*CHUNK_SIZE,:], noise_index=i*CHUNK_SIZE)["audio"]
+            #     # print(i)
+            #     # print(CHUNK_SIZE+((i)))
+            #     tmp = model.decode(z[:,(i):CHUNK_SIZE+((i)),:])["audio"]
+            #     # print(tmp[:,-hop_size:].shape)
+            #     recon_cat = torch.cat((recon_cat, tmp[:,-hop_size:]), dim=-1)
+            #     #idiot check
+            #     # tmp = model.decode(z[:,:,:])["audio"]
+            #     # recon_cat = torch.cat((recon_cat, tmp[:,(CHUNK_SIZE*hop_size)*i:((CHUNK_SIZE*hop_size)*i)+hop_size]), dim=-1)
+
+
+            # print("Difference:", torch.abs((recon_cat_full - recon_cat_full)).sum())
+
+            # half_1 = model.decode(z[:,:2048,:])["audio"]
+            # half_2 = model.decode(z[:,2048:,:])["audio"]
+            # print(half_1.shape)
+            # print(half_2.shape)
             print(recon_audio.shape)
-            print(img)
+            # recon_cat = torch.cat((half_1, half_2), dim=-1)
+            print(recon_cat.shape)
 
             # ---------- Run Model END ----------
 
             spec_dist = spectral_distances(sr=SAMPLE_RATE, device=DEVICE)
             spec_loss = spec_dist(recon_audio, waveforms)
+            spec_loss_cat = spec_dist(recon_cat, waveforms)
 
             print(x_hat.shape)
             print(waveforms.shape)
 
             print("Spectral Loss: ", spec_loss)
+            print("Spectral Loss_cat: ", spec_loss_cat)
 
             if SAVE_RECONSTRUCTIONS:
                 for i, signal in enumerate(recon_audio):
@@ -749,6 +814,7 @@ if __name__ == "__main__":
                     # torchaudio.save(f"./audio_tests/reconstructions/2048/{labels[i][:-4]}.wav", waveforms[i], SAMPLE_RATE)
                     torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/CC_recon_{i}_{spec_loss}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
                     torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_recon_{i}.wav', signal.unsqueeze(0).cpu(), SAMPLE_RATE)
+                    torchaudio.save(f'{RECONSTRUCTION_SAVE_DIR}/fake_audio/CC_reconCat_{i}.wav', recon_cat.cpu(), SAMPLE_RATE)
                     torchaudio.save(f"{RECONSTRUCTION_SAVE_DIR}/real_audio/CC_{i}.wav", waveforms[i].unsqueeze(0).cpu(), SAMPLE_RATE)
                     # print(f'{classes[labels[i]]} saved')
 
