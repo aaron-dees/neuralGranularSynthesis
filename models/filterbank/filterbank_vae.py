@@ -380,7 +380,7 @@ class SpectralDecoder_v2(nn.Module):
 
         if gru_state==None:
             # note num layer is 1 here
-            gru_state=torch.zeros(z.shape[0], 1, self.h_dim)
+            gru_state=torch.zeros(1, z.shape[0], self.h_dim)
 
         hidden = []
         # z = z.reshape(-1, n_grains, z.shape[1])
