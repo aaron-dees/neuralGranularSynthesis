@@ -3,6 +3,9 @@ import math
 import matplotlib.pyplot as plt
 # from utils.utilities import generate_noise_grains, generate_noise_grains_stft
 import utils.utilities as utils
+import numpy as np
+from scipy import fftpack
+
 
 ##################
 #   Modified Sigmoid
@@ -86,6 +89,134 @@ def noise_filtering(filter_coeffs,filter_window, n_grains, l_grain, hop_ratio):
     # do they doe something similar in Neural Gran Synth
 
     return audio
+
+def frame(signal, frame_length, frame_step, pad_end=False, pad_value=0, axis=-1):
+    """
+    equivalent of tf.signal.frame
+    """
+    pad_size = 0
+    signal_length = signal.shape[axis]
+    if pad_end:
+        frames_overlap = frame_length - frame_step
+        rest_samples = np.abs(signal_length - frames_overlap) % np.abs(frame_length - frames_overlap)
+        pad_size = int(frame_length - rest_samples)
+        if pad_size != 0:
+            pad_axis = [0] * signal.ndim
+            pad_axis[axis] = pad_size
+            signal = torch.nn.functional.pad(signal, pad_axis, "constant", pad_value)
+    frames=signal.unfold(axis, frame_length, frame_step)
+    return frames
+
+def get_fft_size(frame_size: int, ir_size: int, power_of_2: bool = True) -> int:
+  """Calculate final size for efficient FFT.
+
+  Args:
+    frame_size: Size of the audio frame.
+    ir_size: Size of the convolving impulse response.
+    power_of_2: Constrain to be a power of 2. If False, allow other 5-smooth
+      numbers. TPU requires power of 2, while GPU is more flexible.
+
+  Returns:
+    fft_size: Size for efficient FFT.
+  """
+  convolved_frame_size = ir_size + frame_size - 1
+  if power_of_2:
+    # Next power of 2.
+    fft_size = int(2**np.ceil(np.log2(convolved_frame_size)))
+  else:
+    fft_size = int(fftpack.helper.next_fast_len(convolved_frame_size))
+  return fft_size
+
+def crop_and_compensate_delay(audio, audio_size, ir_size,
+                              padding,
+                              delay_compensation):
+  """Crop audio output from convolution to compensate for group delay.
+
+  Args:
+    audio: Audio after convolution. Tensor of shape [batch, time_steps].
+    audio_size: Initial size of the audio before convolution.
+    ir_size: Size of the convolving impulse response.
+    padding: Either 'valid' or 'same'. For 'same' the final output to be the
+      same size as the input audio (audio_timesteps). For 'valid' the audio is
+      extended to include the tail of the impulse response (audio_timesteps +
+      ir_timesteps - 1).
+    delay_compensation: Samples to crop from start of output audio to compensate
+      for group delay of the impulse response. If delay_compensation < 0 it
+      defaults to automatically calculating a constant group delay of the
+      windowed linear phase filter from frequency_impulse_response().
+
+  Returns:
+    Tensor of cropped and shifted audio.
+
+  Raises:
+    ValueError: If padding is not either 'valid' or 'same'.
+  """
+  # Crop the output.
+  if padding == 'valid':
+    crop_size = ir_size + audio_size - 1
+  elif padding == 'same':
+    crop_size = audio_size
+  else:
+    raise ValueError('Padding must be \'valid\' or \'same\', instead '
+                     'of {}.'.format(padding))
+
+  # Compensate for the group delay of the filter by trimming the front.
+  # For an impulse response produced by frequency_impulse_response(),
+  # the group delay is constant because the filter is linear phase.
+  total_size = int(audio.shape[-1])
+  crop = total_size - crop_size
+  start = ((ir_size - 1) // 2 -
+           1 if delay_compensation < 0 else delay_compensation)
+  end = crop - start
+  return audio[:, start:-end]
+
+def fft_convolve_ddsp(signal, impulse_response):
+
+    if(len(signal.shape)!=2):
+        raise ValueError("Signal must be only 2 dimensions")
+    # Cut audio into frames.
+    audio_size = signal.shape[-1]
+    n_ir_frames = impulse_response.shape[1]
+    ir_size = impulse_response.shape[-1]
+    frame_size = int(np.ceil(audio_size / n_ir_frames))
+    hop_size = frame_size
+    audio_frames = frame(signal, frame_size, hop_size, pad_end=True)
+    ola_folder = torch.nn.Fold((audio_size+hop_size, 1),(hop_size,1), stride=(hop_size,1))
+    test = ola_folder(audio_frames.permute(0,2,1)).squeeze(0).squeeze(-1)
+
+    # Check number of frames match
+    n_audio_frames = int(audio_frames.shape[1])
+    # print(impulse_response.shape)
+    if n_audio_frames != n_ir_frames:
+        raise ValueError(
+            'Number of Audio frames ({}) and impulse response frames ({}) do not '
+            'match. For small hop size = ceil(audio_size / n_ir_frames), '
+            'number of impulse response frames must be a multiple of the audio '
+            'size.'.format(n_audio_frames, n_ir_frames))
+    
+    # Pad and FFT the audio and impulse responses.
+    fft_size = get_fft_size(frame_size, ir_size, power_of_2=True)
+    audio_fft = torch.fft.rfft(audio_frames, fft_size)
+    ir_fft = torch.fft.rfft(impulse_response, fft_size)
+
+    # signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
+    # kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
+
+    # NOTE Should I really be using ifft here since we want to keep the phase of the noise. 
+    audio_frames_out = torch.fft.irfft(audio_fft * ir_fft)
+    #HACK - Pad output size, I've test this and it seems to be the way to do it, then we can clip end off.
+    ola_folder = torch.nn.Fold((audio_size+fft_size, 1),(fft_size,1), stride=(hop_size,1))
+    output = ola_folder(audio_frames_out.permute(0,2,1)).squeeze(0).squeeze(-1)
+    if(len(output.shape)>2):
+       output = output.squeeze(1)
+
+    delay_compensation = -1
+    padding = "same"
+    cropped_out = crop_and_compensate_delay(output, audio_size, ir_size, padding,
+                                   delay_compensation)
+
+
+    return cropped_out
 
 def fft_convolve(signal, kernel):
 

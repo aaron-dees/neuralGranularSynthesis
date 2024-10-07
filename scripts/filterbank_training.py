@@ -99,7 +99,8 @@ if __name__ == "__main__":
 
     print("-----Dataset Loaded-----")
 
-    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
+    # model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
+    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=128)
     
     model.to(DEVICE)
 
@@ -726,12 +727,12 @@ if __name__ == "__main__":
             print(waveforms.shape)
             x_hat, z, mu, log_variance = model(waveforms)
             recon_audio = x_hat
-            print(z.shape)
+            print(img)
 
 
             # # # Seq test
             # # CHUNK_SIZE = 64
-            CHUNK_SIZE = 16
+            CHUNK_SIZE = 64
             # # handle the first
             # recon_cat_full = model.decode(z[:,:,:])["audio"]
             # # recon_cat_full_test = model.decode(z[:,:,:])["audio"]

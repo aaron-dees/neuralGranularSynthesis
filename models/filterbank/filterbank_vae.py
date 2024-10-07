@@ -15,7 +15,7 @@ import librosa
 import math
 
 from utils.utilities import sample_from_distribution, generate_noise_grains
-from utils.dsp_components import noise_filtering, mod_sigmoid, safe_log10, amp_to_impulse_response, fft_convolve
+from utils.dsp_components import noise_filtering, mod_sigmoid, safe_log10, amp_to_impulse_response, fft_convolve, fft_convolve_ddsp
 from models.filterbank.filterbank import FilterBank
 from scripts.configs.hyper_parameters_spectral import SAMPLE_RATE, DEVICE
 
@@ -221,7 +221,9 @@ class SpectralEncoder_v2(nn.Module):
 
         mfccs = self.mfcc(x).permute(0,2,1)
 
-        h = self.norm(mfccs[:,:n_frames,:])
+        # NOTE Keep all frames is using DDSP Noise synth, and crop is using noisefilterbank
+        # h = self.norm(mfccs[:,:n_frames,:])
+        h = self.norm(mfccs[:,:,:])
         # h = h.unsqueeze(-2)
         # z = z.permute(2, 0, 1)
         h = self.gru(h)[0]
@@ -479,18 +481,18 @@ class SpectralVAE_v1(nn.Module):
         
         """
         target_size = 64*32
+        signal_length = 2**16
 
         amplitudes = amplitudes.permute(0,2,1)
 
         impulse = amp_to_impulse_response(amplitudes, target_size)
+        #generate a noise signal of full length
         noise = torch.rand(
             impulse.shape[0],
-            impulse.shape[1],
-            impulse.shape[2],
+            signal_length,
         ).to(impulse) * 2 - 1
 
-        noise = fft_convolve(noise, impulse).contiguous()
-        print(noise.shape)
+        noise = fft_convolve_ddsp(noise, impulse).contiguous()
         return noise
 
     def synth_batch(self, amplitudes, noise_index=0):
@@ -557,7 +559,8 @@ class SpectralVAE_v1(nn.Module):
     def decode(self, z, gru_state=None, noise_index=0):
 
         amplitudes, gru_state = self.Decoder(z, gru_state=gru_state)
-        signal = self.synth_batch(amplitudes=amplitudes, noise_index=noise_index)
+        # signal = self.synth_batch(amplitudes=amplitudes, noise_index=noise_index)
+        signal = self.ddsp_noise_synth(amplitudes=amplitudes)
             
         return {"audio":signal, "gru_state":gru_state}
 
@@ -571,8 +574,8 @@ class SpectralVAE_v1(nn.Module):
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
             amplitudes, _ = self.Decoder(z)
-            signal = self.synth_batch(amplitudes=amplitudes)
-            test = self.ddsp_noise_synth(amplitudes=amplitudes)
+            # signal = self.synth_batch(amplitudes=amplitudes)
+            signal = self.ddsp_noise_synth(amplitudes=amplitudes)
         else:
             amplitudes, _ = self.Decoder(mu)
             signal = self.synth_batch(amplitudes=amplitudes)
