@@ -100,7 +100,7 @@ if __name__ == "__main__":
     print("-----Dataset Loaded-----")
 
     # model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
-    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, mfcc_hop_size=hop_size, n_band=128)
+    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, mfcc_hop_size=hop_size, n_band=2048)
     
     model.to(DEVICE)
 
@@ -214,8 +214,6 @@ if __name__ == "__main__":
 
 
                 x_hat, z, mu, log_variance = model(waveform, noise_synth=NOISE_SYNTH)
-                print(x_hat.shape)
-                print(img)
 
                 mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
                 log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])

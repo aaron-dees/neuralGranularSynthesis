@@ -454,13 +454,15 @@ class SpectralVAE_v1(nn.Module):
                     filterbank_attenuation=50,
                     min_noise_len = 2**16,
                     normalize_noise_bands=True,
-                    synth_window=32
+                    synth_window=32,
+                    mfcc_hop_size = 32
                     ):
         super(SpectralVAE_v1, self).__init__()
 
         self.z_dim = z_dim
         self.l_grain = l_grain
         self.synth_window = synth_window
+        self.mfcc_hop_size = mfcc_hop_size
 
         fb  = FilterBank(n_filters_linear = n_band//2, n_filters_log = n_band//2, linear_min_f = linear_min_f, linear_max_f_cutoff_fs = linear_max_f_cutoff_fs,  fs = fs, attenuation = filterbank_attenuation)
         self.center_frequencies = fb.band_centers #store center frequencies for reference
@@ -472,6 +474,7 @@ class SpectralVAE_v1(nn.Module):
                         z_dim = z_dim,
                         h_dim = h_dim,
                         synth_window=synth_window,
+                        mfcc_hop_size = mfcc_hop_size,
                     )
         self.Decoder = SpectralDecoder_v2(
                         l_grain = l_grain,
@@ -485,7 +488,7 @@ class SpectralVAE_v1(nn.Module):
         """ Apply predicted amplitudes to DDSP noise synthesizer
         
         """
-        signal_length = 2**16
+        signal_length = self.mfcc_hop_size * (amplitudes.shape[-1]-1)
             
         amplitudes = amplitudes.permute(0,2,1)
 
@@ -511,7 +514,6 @@ class SpectralVAE_v1(nn.Module):
         signal : torch.Tensor
             Output audio signal
         """
-
         noise_index = noise_index * self.synth_window
         #synth in noise_len frames to fit longer sequences on GPU memory
         frame_len = int(self.noise_len/self.synth_window)
