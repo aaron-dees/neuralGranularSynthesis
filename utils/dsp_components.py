@@ -273,11 +273,18 @@ def fft_convolve_no_pad_2(signal, kernel):
 
 def amp_to_impulse_response(amp, target_size):
 
+    # I think I need to be more clever about this is target size is bigger than fft_size
+    # Padding needs to be applied in appropriate manner
+    # see https://github.com/magenta/ddsp/blob/main/ddsp/core.py#L1534
+
     amp = torch.stack([amp, torch.zeros_like(amp)], -1)
     amp = torch.view_as_complex(amp)
     amp = torch.fft.irfft(amp)
 
     filter_size = amp.shape[-1]
+
+    if(target_size == 0):
+       target_size = filter_size
 
     amp = torch.roll(amp, filter_size // 2, -1)
     win = torch.hann_window(filter_size, dtype=amp.dtype, device=amp.device)

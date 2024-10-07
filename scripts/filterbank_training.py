@@ -100,7 +100,7 @@ if __name__ == "__main__":
     print("-----Dataset Loaded-----")
 
     # model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
-    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=128)
+    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=256)
     
     model.to(DEVICE)
 
@@ -213,7 +213,7 @@ if __name__ == "__main__":
                 # ---------- Run Model ----------
 
 
-                x_hat, z, mu, log_variance = model(waveform)
+                x_hat, z, mu, log_variance = model(waveform, noise_synth=NOISE_SYNTH)
 
                 mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
                 log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])
@@ -229,6 +229,7 @@ if __name__ == "__main__":
                     start4 = time.time()
 
                 spec_loss = spec_dist(x_hat, waveform)
+                # print(img)
 
                 # Compute loss
                 # spec_loss = spec_dist(audio_sum, waveform)
@@ -324,7 +325,7 @@ if __name__ == "__main__":
 
                     # ---------- Run Model ----------
 
-                    x_hat, z, mu, log_variance = model(waveform)
+                    x_hat, z, mu, log_variance = model(waveform, noise_synth=NOISE_SYNTH)
                     # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
                     mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
                     log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])
@@ -440,7 +441,7 @@ if __name__ == "__main__":
 
                         # ---------- Run Model ----------
 
-                        x_hat, z, mu, log_variance = model(waveform)
+                        x_hat, z, mu, log_variance = model(waveform, noise_synth=NOISE_SYNTH)
                         # x_hat, z, mu, log_variance = model(inv_cep_coeffs[:,:-1,:])
                         mu = mu.reshape(mu.shape[0]*mu.shape[1],mu.shape[2])
                         log_variance = mu.reshape(log_variance.shape[0]*log_variance.shape[1], log_variance.shape[2])

@@ -155,7 +155,11 @@ class SpectralEncoder_v2(nn.Module):
                     l_grain=2048,
                     h_dim = 512,
                     n_bands = 2048,
-                    synth_window = 32
+                    synth_window = 32,
+                    n_mfcc = 30,
+                    mfcc_n_fft = 512,
+                    mfcc_n_mels = 128,
+                    mfcc_hop_size = 128
                     ):
         super(SpectralEncoder_v2, self).__init__()
 
@@ -175,12 +179,13 @@ class SpectralEncoder_v2(nn.Module):
 
         self.mfcc = torchaudio.transforms.MFCC(
         sample_rate=SAMPLE_RATE,
-            n_mfcc=30,
+            n_mfcc=n_mfcc,
             log_mels=True,
             melkwargs={
-                "n_fft": 512,
-                "n_mels": 128,
-                "hop_length": 32,
+                "n_fft": mfcc_n_fft,
+                "n_mels": mfcc_n_mels,
+                "hop_length": mfcc_hop_size,
+                # "hop_length": 32,
                 "f_min": 20.0,
                 "f_max": 8000.0
         }).to(DEVICE)
@@ -195,7 +200,7 @@ class SpectralEncoder_v2(nn.Module):
 
 
 
-    def encode(self, x):
+    def encode(self, x, noise_synth='filterbank'):
 
         # h = x.reshape(x.shape[0]*self.n_grains,(self.l_grain//2)+1)
         # mfccs = spectral_ops.compute_mfcc(
@@ -216,14 +221,15 @@ class SpectralEncoder_v2(nn.Module):
         # z = self.dense_out(z)
 
         # Based on the input signal size and the synth window, calculate the internal sample size, this is to account for upsampling later
-        in_size = x.shape[-1]
-        n_frames = int(in_size // self.synth_window)
-
         mfccs = self.mfcc(x).permute(0,2,1)
 
         # NOTE Keep all frames is using DDSP Noise synth, and crop is using noisefilterbank
-        # h = self.norm(mfccs[:,:n_frames,:])
-        h = self.norm(mfccs[:,:,:])
+        if(noise_synth == "ddsp"):
+            h = self.norm(mfccs[:,:,:])
+        else:
+            in_size = x.shape[-1]
+            n_frames = int(in_size // self.synth_window)
+            h = self.norm(mfccs[:,:n_frames,:])
         # h = h.unsqueeze(-2)
         # z = z.permute(2, 0, 1)
         h = self.gru(h)[0]
@@ -238,9 +244,9 @@ class SpectralEncoder_v2(nn.Module):
 
         return z, mu, logvar
 
-    def forward(self, audio):
+    def forward(self, audio, noise_synth="filterbank"):
 
-        z, mu, logvar = self.encode(audio)
+        z, mu, logvar = self.encode(audio, noise_synth=noise_synth)
         # z = self.encode(audio)
 
         return z, mu, logvar
@@ -457,7 +463,6 @@ class SpectralVAE_v1(nn.Module):
         self.synth_window = synth_window
 
         fb  = FilterBank(n_filters_linear = n_band//2, n_filters_log = n_band//2, linear_min_f = linear_min_f, linear_max_f_cutoff_fs = linear_max_f_cutoff_fs,  fs = fs, attenuation = filterbank_attenuation)
-        print(len(fb.filters))
         self.center_frequencies = fb.band_centers #store center frequencies for reference
         self.noise_bands, self.noise_len = get_noise_bands(fb=fb, min_noise_len=min_noise_len, normalize=normalize_noise_bands)
 
@@ -476,16 +481,15 @@ class SpectralVAE_v1(nn.Module):
                         n_band=n_band,
 
                     )
-    def ddsp_noise_synth(self, amplitudes):
+    def ddsp_noise_synth(self, amplitudes, fir_taps=0):
         """ Apply predicted amplitudes to DDSP noise synthesizer
         
         """
-        target_size = 64*32
         signal_length = 2**16
-
+            
         amplitudes = amplitudes.permute(0,2,1)
 
-        impulse = amp_to_impulse_response(amplitudes, target_size)
+        impulse = amp_to_impulse_response(amplitudes, fir_taps)
         #generate a noise signal of full length
         noise = torch.rand(
             impulse.shape[0],
@@ -549,35 +553,43 @@ class SpectralVAE_v1(nn.Module):
         # return signal 
 
         # Number of convolutional layers
-    def encode(self, x):
+    def encode(self, x, noise_synth="filterbank"):
 
         # x ---> z
-        z, mu, log_variance = self.Encoder(x);
+        z, mu, log_variance = self.Encoder(x, noise_synth=noise_synth);
     
         return {"z":z, "mu":mu, "logvar":log_variance} 
 
-    def decode(self, z, gru_state=None, noise_index=0):
+    def decode(self, z, gru_state=None, noise_index=0, noise_synth="filterbank", fir_taps=0):
 
         amplitudes, gru_state = self.Decoder(z, gru_state=gru_state)
-        # signal = self.synth_batch(amplitudes=amplitudes, noise_index=noise_index)
-        signal = self.ddsp_noise_synth(amplitudes=amplitudes)
+        if(noise_synth=="ddsp"):
+            signal = self.ddsp_noise_synth(amplitudes=amplitudes, fir_taps=fir_taps)
+        else:
+            signal = self.synth_batch(amplitudes=amplitudes,noise_index=noise_index)
             
         return {"audio":signal, "gru_state":gru_state}
 
-    def forward(self, x, sampling=True):
+    def forward(self, x, sampling=True, noise_synth="filterbank"):
 
         # x ---> z
         
-        z, mu, log_variance = self.Encoder(x);
+        z, mu, log_variance = self.Encoder(x, noise_synth=noise_synth);
 
         # z ---> x_hat
         # Note in paper they also have option passing mu into the decoder and not z
         if sampling:
             amplitudes, _ = self.Decoder(z)
-            # signal = self.synth_batch(amplitudes=amplitudes)
-            signal = self.ddsp_noise_synth(amplitudes=amplitudes)
+            if(noise_synth=="ddsp"):
+                signal = self.ddsp_noise_synth(amplitudes=amplitudes)
+            else:
+                signal = self.synth_batch(amplitudes=amplitudes)
+
         else:
             amplitudes, _ = self.Decoder(mu)
-            signal = self.synth_batch(amplitudes=amplitudes)
+            if(noise_synth=="ddsp"):
+                signal = self.ddsp_noise_synth(amplitudes=amplitudes)
+            else:
+                signal = self.synth_batch(amplitudes=amplitudes)
 
         return signal, z, mu, log_variance
