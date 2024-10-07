@@ -171,7 +171,7 @@ class SpectralEncoder_v2(nn.Module):
         self.synth_window = synth_window
 
         # self.flatten_size = int((l_grain//2)+1)
-        self.flatten_size = 30 
+        self.flatten_size = n_mfcc
         self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim))
         self.mu = nn.Linear(h_dim,z_dim)
         self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
