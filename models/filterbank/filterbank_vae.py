@@ -481,7 +481,7 @@ class SpectralVAE_v1(nn.Module):
                         n_band=n_band,
 
                     )
-    def ddsp_noise_synth(self, amplitudes, fir_taps=0):
+    def ddsp_noise_synth(self, amplitudes, fir_taps=-1):
         """ Apply predicted amplitudes to DDSP noise synthesizer
         
         """
@@ -560,7 +560,7 @@ class SpectralVAE_v1(nn.Module):
     
         return {"z":z, "mu":mu, "logvar":log_variance} 
 
-    def decode(self, z, gru_state=None, noise_index=0, noise_synth="filterbank", fir_taps=0):
+    def decode(self, z, gru_state=None, noise_index=0, noise_synth="filterbank", fir_taps=-1):
 
         amplitudes, gru_state = self.Decoder(z, gru_state=gru_state)
         if(noise_synth=="ddsp"):

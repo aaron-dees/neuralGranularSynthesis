@@ -181,9 +181,6 @@ def fft_convolve_ddsp(signal, impulse_response):
     frame_size = int(np.ceil(audio_size / n_ir_frames))
     hop_size = frame_size
     audio_frames = frame(signal, frame_size, hop_size, pad_end=True)
-    ola_folder = torch.nn.Fold((audio_size+hop_size, 1),(hop_size,1), stride=(hop_size,1))
-    test = ola_folder(audio_frames.permute(0,2,1)).squeeze(0).squeeze(-1)
-
     # Check number of frames match
     n_audio_frames = int(audio_frames.shape[1])
     # print(impulse_response.shape)
@@ -193,17 +190,14 @@ def fft_convolve_ddsp(signal, impulse_response):
             'match. For small hop size = ceil(audio_size / n_ir_frames), '
             'number of impulse response frames must be a multiple of the audio '
             'size.'.format(n_audio_frames, n_ir_frames))
-    
+
     # Pad and FFT the audio and impulse responses.
     fft_size = get_fft_size(frame_size, ir_size, power_of_2=True)
     audio_fft = torch.fft.rfft(audio_frames, fft_size)
     ir_fft = torch.fft.rfft(impulse_response, fft_size)
 
-    # signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
-    # kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
-
-    # NOTE Should I really be using ifft here since we want to keep the phase of the noise. 
     audio_frames_out = torch.fft.irfft(audio_fft * ir_fft)
+
     #HACK - Pad output size, I've test this and it seems to be the way to do it, then we can clip end off.
     ola_folder = torch.nn.Fold((audio_size+fft_size, 1),(fft_size,1), stride=(hop_size,1))
     output = ola_folder(audio_frames_out.permute(0,2,1)).squeeze(0).squeeze(-1)
@@ -281,18 +275,19 @@ def amp_to_impulse_response(amp, target_size):
     amp = torch.view_as_complex(amp)
     amp = torch.fft.irfft(amp)
 
-    filter_size = amp.shape[-1]
+    ir_size = amp.shape[-1]
 
-    if(target_size == 0):
-       target_size = filter_size
+    # window size cannot be bigger than ir size
+    if(target_size < 0):
+       target_size = ir_size
 
-    amp = torch.roll(amp, filter_size // 2, -1)
-    win = torch.hann_window(filter_size, dtype=amp.dtype, device=amp.device)
+    amp = torch.roll(amp, ir_size // 2, -1)
+    win = torch.hann_window(ir_size, dtype=amp.dtype, device=amp.device)
 
     amp = amp * win
 
-    amp = torch.nn.functional.pad(amp, (0, int(target_size) - int(filter_size)))
-    amp = torch.roll(amp, -filter_size // 2, -1)
+    amp = torch.nn.functional.pad(amp, (0, int(target_size) - int(ir_size)))
+    amp = torch.roll(amp, -ir_size // 2, -1)
 
     return amp
 

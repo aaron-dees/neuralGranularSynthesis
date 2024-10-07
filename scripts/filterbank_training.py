@@ -32,7 +32,7 @@ print("--- Device: ", DEVICE)
 # print("--- Venv: ", sys.prefix)
 # sdcsff
 
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 # start a new wandb run to track this script
 if WANDB:
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     print("-----Dataset Loaded-----")
 
     # model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=2048)
-    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=256)
+    model = SpectralVAE_v1(l_grain=l_grain, h_dim=H_DIM, z_dim=LATENT_SIZE, synth_window=hop_size, n_band=129)
     
     model.to(DEVICE)
 
