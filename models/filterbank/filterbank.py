@@ -73,9 +73,9 @@ class FilterBank(nn.Module):
         
         # test min phase filters 
         #make non causal (zero phase), do i need to do this?
-        h = np.roll(h, N//2-1)
-        # get min phase signal
-        _, h = minimum_phase_nobatch(h, N)
+        # h = np.roll(h, N//2-1)
+        # # get min phase signal
+        # _, h = minimum_phase_nobatch(h, N)
 
         return h
     
