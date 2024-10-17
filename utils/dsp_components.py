@@ -170,6 +170,52 @@ def crop_and_compensate_delay(audio, audio_size, ir_size,
   end = crop - start
   return audio[:, start:-end]
 
+def fft_convolve_ddsp_framedSig(signal, impulse_response, target_len):
+
+    # Cut audio into frames.
+    audio_size = target_len 
+    n_ir_frames = impulse_response.shape[1]
+    ir_size = impulse_response.shape[-1]
+    frame_size = int(np.ceil(audio_size / n_ir_frames))
+    hop_size = frame_size
+    audio_frames = signal
+    # Check number of frames match
+    n_audio_frames = int(audio_frames.shape[1])
+    # print(impulse_response.shape)
+    if n_audio_frames != n_ir_frames:
+        raise ValueError(
+            'Number of Audio frames ({}) and impulse response frames ({}) do not '
+            'match. For small hop size = ceil(audio_size / n_ir_frames), '
+            'number of impulse response frames must be a multiple of the audio '
+            'size.'.format(n_audio_frames, n_ir_frames))
+
+    # Pad and FFT the audio and impulse responses.
+    fft_size = get_fft_size(frame_size, ir_size, power_of_2=True)
+    audio_fft = torch.fft.rfft(audio_frames, fft_size)
+    ir_fft = torch.fft.rfft(impulse_response, fft_size)
+
+    audio_frames_out = torch.fft.irfft(audio_fft * ir_fft)
+
+    #HACK - Pad output size, I've test this and it seems to be the way to do it, then we can clip end off.
+    ola_folder = torch.nn.Fold((audio_size+fft_size, 1),(fft_size,1), stride=(hop_size,1))
+    output = ola_folder(audio_frames_out.permute(0,2,1)).squeeze(0).squeeze(-1)
+    if(len(output.shape)>2):
+       output = output.squeeze(1)
+    # Normalises based on number of overlapping grains used in folding per point in time.
+    unfolder = torch.nn.Unfold((fft_size,1),stride=(hop_size,1))
+    input_ones = torch.ones(1,1,target_len+fft_size,1)
+    ola_divisor = ola_folder(unfolder(input_ones)).squeeze()
+    ola_divisor = ola_divisor
+    output = output/ola_divisor.unsqueeze(0).repeat(signal.shape[0],1)
+
+    delay_compensation = -1
+    padding = "same"
+    cropped_out = crop_and_compensate_delay(output, audio_size, ir_size, padding,
+                                   delay_compensation)
+
+
+    return cropped_out
+
 def fft_convolve_ddsp(signal, impulse_response):
 
     if(len(signal.shape)!=2):
@@ -211,6 +257,20 @@ def fft_convolve_ddsp(signal, impulse_response):
 
 
     return cropped_out
+
+def fft_convolve_pad(signal, kernel):
+
+    signal = torch.nn.functional.pad(signal, (0, signal.shape[-1]))
+    kernel = torch.nn.functional.pad(kernel, (kernel.shape[-1], 0))
+    # fft_size = get_fft_size(signal.shape[-1], kernel.shape[-1], power_of_2=True)
+
+    # NOTE Should I really be using ifft here since we want to keep the phase of the noise. 
+    output = torch.fft.irfft(torch.fft.rfft(signal) * torch.fft.rfft(kernel))
+    # output = torch.fft.irfft(torch.fft.rfft(signal, fft_size) * torch.fft.rfft(kernel, fft_size))
+    output = output[..., output.shape[-1] // 2:]
+
+
+    return output
 
 def fft_convolve(signal, kernel):
 
@@ -274,13 +334,18 @@ def amp_to_impulse_response(amp, target_size):
     amp = torch.stack([amp, torch.zeros_like(amp)], -1)
     amp = torch.view_as_complex(amp)
     amp = torch.fft.irfft(amp)
+    # plt.plot(amp[0,7,:])
+    # plt.savefig("/Users/adees/Code/neural_granular_synthesis/scripts/TDSP/test.png")
+    # print(img)
 
     ir_size = amp.shape[-1]
+    # print("Test: ", amp[0,7,:512].sum())
+    # print("Test: ", amp[0,7,512:].sum())
 
     # window size cannot be bigger than ir size
     if(target_size < 0):
        target_size = ir_size
-
+    
     amp = torch.roll(amp, ir_size // 2, -1)
     win = torch.hann_window(ir_size, dtype=amp.dtype, device=amp.device)
 
@@ -307,3 +372,40 @@ def amp_to_impulse_response_w_phase(amp, target_size):
     amp = torch.roll(amp, -filter_size // 2, -1)
 
     return amp
+
+def minimum_phase(signal, frame_size):
+
+  # need to make this more robust to odd values impulse resposne.
+  # create mask for minimum phase realization
+  # TODO make the mask more robust to odd numbers.
+   
+  mask = torch.ones(1)
+  mask = torch.concat((mask, 2*torch.ones((frame_size//2)-1)), -1)
+  mask = torch.concat((mask, torch.ones(1)), -1)
+  mask = torch.concat((mask, torch.zeros((frame_size//2)-1)), -1)
+  mask = mask.repeat(signal.shape[0], signal.shape[-2], 1)
+
+
+  min_phase_fir_spec =  torch.exp(torch.fft.rfft(mask * torch.fft.irfft(torch.log(torch.abs(torch.fft.rfft((signal)))))))
+  min_phase_fir = torch.fft.irfft(min_phase_fir_spec)
+
+  return min_phase_fir_spec, min_phase_fir
+
+def minimum_phase_nobatch(signal, frame_size):
+
+  signal = torch.from_numpy(signal)
+
+  # need to make this more robust to odd values impulse resposne.
+  # create mask for minimum phase realization
+  # TODO make the mask more robust to odd numbers.
+   
+  mask = torch.ones(1)
+  mask = torch.concat((mask, 2*torch.ones((frame_size//2)-1)), -1)
+  mask = torch.concat((mask, torch.ones(1)), -1)
+  mask = torch.concat((mask, torch.zeros((frame_size//2)-1)), -1)
+
+
+  min_phase_fir_spec =  torch.exp(torch.fft.rfft(mask * torch.fft.irfft(torch.log(torch.abs(torch.fft.rfft((signal)))))))
+  min_phase_fir = torch.fft.irfft(min_phase_fir_spec)
+
+  return min_phase_fir_spec.numpy(), min_phase_fir.numpy()

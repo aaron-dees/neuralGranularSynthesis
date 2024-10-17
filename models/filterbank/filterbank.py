@@ -2,6 +2,7 @@ import torch.nn as nn
 from scipy import signal
 import numpy as np
 import matplotlib.pyplot as plt
+from utils.dsp_components import minimum_phase_nobatch
 
 class FilterBank(nn.Module):
     """Filterbank class that builds a filterbank with linearly and logarithmically distributed filters.
@@ -69,6 +70,12 @@ class FilterBank(nn.Module):
         N, beta = signal.kaiserord(ripple=attenuation, width=width)
         N = 2 * (N // 2) + 1 #make odd
         h = signal.firwin(numtaps=N, cutoff=cutoff, window=('kaiser', beta), scale=scale, fs=fs, pass_zero=pass_zero)
+        
+        # test min phase filters 
+        #make non causal (zero phase), do i need to do this?
+        h = np.roll(h, N//2-1)
+        # get min phase signal
+        _, h = minimum_phase_nobatch(h, N)
 
         return h
     
