@@ -223,13 +223,108 @@ class SpectralEncoder_v2(nn.Module):
         # Based on the input signal size and the synth window, calculate the internal sample size, this is to account for upsampling later
         mfccs = self.mfcc(x).permute(0,2,1)
 
+
         # NOTE Keep all frames is using DDSP Noise synth, and crop is using noisefilterbank
+
         if(noise_synth == "ddsp"):
             h = self.norm(mfccs[:,:,:])
         else:
             in_size = x.shape[-1]
             n_frames = int(in_size // self.synth_window)
             h = self.norm(mfccs[:,:n_frames,:])
+        # h = h.unsqueeze(-2)
+        # z = z.permute(2, 0, 1)
+        h = self.gru(h)[0]
+        # print(img)
+        # h = h.reshape(h.shape[0]*n_frames,self.h_dim)
+        # z = self.linear(z)
+        mu = self.mu(h)
+        logvar = self.logvar(h)
+
+        # z of shape [bs*n_grains,z_dim]
+        z = sample_from_distribution(mu, logvar)
+
+        return z, mu, logvar
+
+    def forward(self, audio, noise_synth="filterbank"):
+
+        z, mu, logvar = self.encode(audio, noise_synth=noise_synth)
+        # z = self.encode(audio)
+
+        return z, mu, logvar
+        # return z
+
+class SpectralEncoder_v3(nn.Module):
+
+    def __init__(self,
+                    z_dim = 128,
+                    l_grain=2048,
+                    h_dim = 512,
+                    n_bands = 2048,
+                    synth_window = 32,
+                    n_cc = 64,
+                    cc_frame_size = 512,
+                    cc_hop_size = 32,
+                    
+                    ):
+        super(SpectralEncoder_v3, self).__init__()
+
+
+        self.l_grain = l_grain
+        self.h_dim = h_dim
+        self.z_dim = z_dim
+        self.n_bands = n_bands
+        self.synth_window = synth_window
+        self.cc_frame_size = cc_frame_size
+        self.cc_hop_size = cc_hop_size
+        self.n_cc = n_cc
+
+        self.flatten_size = int((self.cc_frame_size//2)+1)
+        self.encoder_linears = nn.Sequential(linear_block(self.flatten_size,h_dim))
+        self.mu = nn.Linear(h_dim,z_dim)
+        self.logvar = nn.Sequential(nn.Linear(h_dim,z_dim),nn.Hardtanh(min_val=-5.0, max_val=5.0)) # clipping to avoid numerical instabilities
+
+
+        #TODO check this is ok, I've switch from using 2D norm to 1D, since I want my n_frames to be dynamic.
+        self.norm = nn.LayerNorm(self.flatten_size)
+        # self.norm = nn.LayerNorm((self.n_grains, self.flatten_size))
+        self.gru = nn.GRU(input_size=self.flatten_size, hidden_size=self.h_dim, batch_first=True)
+        self.linear = nn.Linear(self.h_dim, self.z_dim)
+        self.mu = nn.Linear(self.h_dim, self.z_dim)
+        self.logvar = nn.Linear(self.h_dim, self.z_dim)
+
+
+
+    def encode(self, x, noise_synth='filterbank'):
+
+                        # ---------- Turn Waveform into grains ----------
+        ola_window = torch.from_numpy(signal.hann(self.cc_frame_size,sym=False)).type(torch.float32).to(DEVICE)
+        stft_audio = torch.stft(x, n_fft = self.cc_frame_size, hop_length = self.cc_hop_size, window=ola_window, center=True, return_complex=True, pad_mode="constant")
+        
+
+        # ---------- Turn Waveform into grains END ----------
+
+
+        # # ---------- Get CCs, or MFCCs and invert ----------
+        # CCs
+        # print(torch.abs(stft_audio.sum()))
+        grain_db = 20*safe_log10(torch.abs(stft_audio))
+        # cepstral_coeff = dct.dct(torch.from_numpy(y_log_audio).permute(1,0))
+        cepstral_coeff = dct.dct(grain_db.permute(0,2,1))
+        cepstral_coeff[:,:,self.n_cc:] = 0
+        inv_cep_coeffs = 10**(dct.idct(cepstral_coeff) / 20)
+        
+        # # ---------- Get CCs, or MFCCs and invert END ----------
+
+
+        # NOTE Keep all frames is using DDSP Noise synth, and crop is using noisefilterbank
+
+        if(noise_synth == "ddsp"):
+            h = self.norm(inv_cep_coeffs[:,:,:])
+        else:
+            in_size = x.shape[-1]
+            n_frames = int(in_size // self.synth_window)
+            h = self.norm(inv_cep_coeffs[:,:n_frames,:])
         # h = h.unsqueeze(-2)
         # z = z.permute(2, 0, 1)
         h = self.gru(h)[0]
@@ -469,12 +564,12 @@ class SpectralVAE_v1(nn.Module):
         self.noise_bands, self.noise_len = get_noise_bands(fb=fb, min_noise_len=min_noise_len, normalize=normalize_noise_bands)
 
         # Encoder and decoder components
-        self.Encoder = SpectralEncoder_v2(
+        self.Encoder = SpectralEncoder_v3(
                         l_grain = l_grain,
                         z_dim = z_dim,
                         h_dim = h_dim,
                         synth_window=synth_window,
-                        mfcc_hop_size = mfcc_hop_size,
+                        # mfcc_hop_size = mfcc_hop_size,
                     )
         self.Decoder = SpectralDecoder_v2(
                         l_grain = l_grain,
